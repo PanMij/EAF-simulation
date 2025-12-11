@@ -11,7 +11,7 @@ clear; clc;
 mdl = 'ctrlSys';
 
 % EDIT THESE RANGES to fit your system
-Kp_vals = 50:10:120;
+Kp_vals = 90:10:120;
 Ki_vals = 20:10:120;
 Kd_vals = 0:5:30;
 
