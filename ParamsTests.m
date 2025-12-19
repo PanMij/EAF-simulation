@@ -86,7 +86,7 @@ for batchIdx = 1:nBatches
     if useParallel
         % If Parallel Computing Toolbox is available, use parsim for this batch
         if isempty(gcp('nocreate'))
-            parpool(16);  % Set number of workers if necessary
+            parpool(19);  % Set number of workers if necessary
         end
         simOutBatch = parsim(batchIn, 'ShowProgress', 'on');
     else
@@ -109,6 +109,7 @@ for batchIdx = 1:nBatches
 
             fig = figure('Visible','off');
             plot(t, [R_meas step(round(linspace(1, numel(step), numel(t))))]);
+            axis([0 t(end) 0 0.7]); % limit the axis ranges
             title(sprintf('Kp=%.2f Ki=%.2f Kd=%.2f', results(idx).Kp, results(idx).Ki, results(idx).Kd));
             filename = sprintf('./results/pid_sweep_OK%d_Kp%.2f_Ki%.2f_Kd%.2f.png', results(idx).SimOK, results(idx).Kp, results(idx).Ki, results(idx).Kd);
             exportgraphics(fig, filename, 'Resolution', 300);
