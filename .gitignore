@@ -110,6 +110,7 @@ octave-workspace
 
 # Simulation results
 results/
+*.mat
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
