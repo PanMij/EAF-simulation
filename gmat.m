@@ -61,21 +61,22 @@ function G = gmat(A, B, N1, N2, Nu)
     du_at = @(t) double(t == 0);
 
     for t = 1:N2
-        % Compute Δy(t)
         acc = 0;
-
-        % - A-part (past Δy)
+    
+        % A-part: past Δy terms
         for i = 1:na
-            acc = acc - A(i+1) * dy((t - i) + 1);  % dy(t-i)
+            if (t - i) + 1 >= 1
+                acc = acc - A(i+1) * dy((t - i) + 1);
+            end
         end
-
-        % + B-part (delayed Δu): uses Δu(t-1-j)
+    
+        % B-part: delayed Δu terms
         for j = 0:nb
             acc = acc + B(j+1) * du_at(t - 1 - j);
         end
-
-        dy(t + 1) = acc;             % store Δy(t)
-        y(t + 1)  = y(t) + dy(t + 1);% y(t)=y(t-1)+Δy(t)
+    
+        dy(t + 1) = acc;              % Δy(t)
+        y(t + 1)  = y(t) + dy(t + 1); % y(t)
     end
 
     g = y(2:N2+1); % g(1)=y(1), ..., g(N2)=y(N2)
