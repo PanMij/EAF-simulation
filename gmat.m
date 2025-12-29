@@ -36,10 +36,16 @@ function G = gmat(A, B, N1, N2, Nu)
     A = A(:).';  % ensure row
     B = B(:).';  % ensure row
     if isempty(A) || A(1) ~= 1
-        error('A must be non-empty with A(1) == 0.');
+        error('A must be non-empty with A(1) == 1.');
     end
-    if N1 < 1 || N2 <= N1 || Nu < 1
-        error('Require N1>=1, N2>N1, Nu>=1.');
+    validateattributes(N1, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
+        mfilename, 'N1');
+    validateattributes(N2, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
+        mfilename, 'N2');
+    validateattributes(Nu, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
+        mfilename, 'Nu');
+    if N2 <= N1
+        error('Require N2 > N1.');
     end
 
     na = numel(A) - 1;  % order of A
