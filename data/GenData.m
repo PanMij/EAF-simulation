@@ -6,14 +6,11 @@ mdl = 'PlantIdentification';
 sample_per_frame = 10;
 L_init_ls = linspace(0.1025, 0.4187, 10);
 L_init_ls = L_init_ls(2:end-1);
-stop_time = 400;
 
 %% Generate data
 simIn(numel(L_init_ls), 1) = Simulink.SimulationInput(mdl);
 for i = 1:numel(simIn)
     simIn(i) = simIn(i).setModelName(mdl);
-    simIn(i) = simIn(i).setModelParameter('StopTime', num2str(stop_time));
-    simIn(i) = simIn(i).setVariable('sample_per_frame', sample_per_frame);
     simIn(i) = simIn(i).setVariable('L_init', L_init_ls(i));
 end
 
