@@ -8,27 +8,27 @@
 clear; clc;
 
 %% 1. Define model and parameter ranges
-mdl = 'ctrlSys';
+mdl = 'ctrlSys_single_phase';
 
 % EDIT THESE RANGES to fit your system
-Kp_vals = 90:10:120;
-Ki_vals = 20:10:120;
-Kd_vals = 0:5:30;
+N2_vals = 5:5:30;
+Nu_vals = 1:1:3;
+lambda_vals = linspace(1e-6, 1e-3, 30);
 
 stopTime = 20;  % EDIT: simulation stop time (seconds)
 
 
 %% 2. Preallocate result storage
-nKp = numel(Kp_vals);
-nKi = numel(Ki_vals);
-nKd = numel(Kd_vals);
+nN2 = numel(N2_vals);
+nNu = numel(Nu_vals);
+nlambda = numel(lambda_vals);
 
-nCases = nKp * nKi * nKd;
+nCases = nN2 * nNu * nlambda;
 
 results = struct( ...
-    'Kp',       cell(nCases,1), ...
-    'Ki',       cell(nCases,1), ...
-    'Kd',       cell(nCases,1), ...
+    'N2',       cell(nCases,1), ...
+    'Nu',       cell(nCases,1), ...
+    'lambda',   cell(nCases,1), ...
     'SimOK',    cell(nCases,1), ...
     'Metric',   cell(nCases,1) ...
 );  % You can rename/add metrics
@@ -37,9 +37,9 @@ results = struct( ...
 in(nCases,1) = Simulink.SimulationInput(mdl);  % preallocate
 idx = 0;
 
-for iP = 1:nKp
-    for iI = 1:nKi
-        for iD = 1:nKd
+for i = 1:nN2
+    for j = 1:nNu
+        for k = 1:nlambda
             idx = idx + 1;
             
             % Set model name
@@ -48,19 +48,19 @@ for iP = 1:nKp
             % Set stop time
             in(idx) = in(idx).setModelParameter('StopTime', num2str(stopTime));
 
-            Kp = Kp_vals(iP);
-            Ki = Ki_vals(iI);
-            Kd = Kd_vals(iD);
+            N2 = N2_vals(i);
+            Nu = Nu_vals(j);
+            lambda = lambda_vals(k);
 
             % Store parameters in the SimulationInput object
-            in(idx) = in(idx).setVariable('Kp', Kp);
-            in(idx) = in(idx).setVariable('Ki', Ki);
-            in(idx) = in(idx).setVariable('Kd', Kd);
+            in(idx) = in(idx).setVariable('N2', N2);
+            in(idx) = in(idx).setVariable('Nu', Nu);
+            in(idx) = in(idx).setVariable('lam', lambda);
 
             % Save for later
-            results(idx).Kp = Kp;
-            results(idx).Ki = Ki;
-            results(idx).Kd = Kd;
+            results(idx).N2 = N2;
+            results(idx).Nu = Nu;
+            results(idx).lambda = lambda;
         end
     end
 end
@@ -86,12 +86,12 @@ for batchIdx = 1:nBatches
     if useParallel
         % If Parallel Computing Toolbox is available, use parsim for this batch
         if isempty(gcp('nocreate'))
-            parpool(19);  % Set number of workers if necessary
+            parpool(8);  % Set number of workers if necessary
         end
-        simOutBatch = parsim(batchIn, 'ShowProgress', 'on');
+        simOutBatch = parsim(batchIn, 'ShowSimulationManager', 'on');
     else
         % Run the batch without parallelization
-        simOutBatch = sim(batchIn, 'ShowProgress', 'on');
+        simOutBatch = sim(batchIn, 'ShowSimulationManager', 'on');
     end
     
     %% 6. Extract metrics from simulation outputs for this batch
@@ -103,15 +103,23 @@ for batchIdx = 1:nBatches
             results(idx).Metric = NaN;   % Replace with your real metric
 
             logs = simOutBatch(k).logsout;
-            t = logs{1}.Values.Time;
-            R_meas = logs{1}.Values.Data;
-            step = logs{2}.Values.Data;
+            t_u = logs{1}.Values.Time;
+            u = logs{1}.Values.Data;
+            step = logs{3}.Values.Data;
+            t_r = logs{2}.Values.Time;
+            r = logs{2}.Values.Data;
 
             fig = figure('Visible','off');
-            plot(t, [R_meas step(round(linspace(1, numel(step), numel(t))))]);
-            axis([0 t(end) 0 0.7]); % limit the axis ranges
-            title(sprintf('Kp=%.2f Ki=%.2f Kd=%.2f', results(idx).Kp, results(idx).Ki, results(idx).Kd));
-            filename = sprintf('./results/pid_sweep_OK%d_Kp%.2f_Ki%.2f_Kd%.2f.png', results(idx).SimOK, results(idx).Kp, results(idx).Ki, results(idx).Kd);
+            subplot(2, 1, 1);
+            plot(t_u, u);
+            subplot(2, 1, 2);
+            plot(t_u, step);
+            hold on
+            plot(t_r, r);
+            hold off
+            axis([0 t_u(end) 0.001 0.0025]); % limit the axis ranges
+            title(sprintf('N2=%d Nu=%d lam=%.2e', results(idx).N2, results(idx).Nu, results(idx).lambda));
+            filename = sprintf('./results/gpc_sweep_OK%d_N2%d_Nu%d_lam%.2e.png', results(idx).SimOK, results(idx).N2, results(idx).Nu, results(idx).lambda);
             exportgraphics(fig, filename, 'Resolution', 300);
             close(fig);
 
