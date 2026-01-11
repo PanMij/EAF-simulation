@@ -1,6 +1,8 @@
 # Created by https://www.toptal.com/developers/gitignore/api/matlab,c,c++,python
 # Edit at https://www.toptal.com/developers/gitignore?templates=matlab,c,c++,python
 
+.vscode/
+
 ### C ###
 # Prerequisites
 *.d
@@ -107,6 +109,10 @@ codegen/
 
 # Octave session info
 octave-workspace
+
+# Simulation results
+results/
+*.mat
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
