@@ -1,4 +1,4 @@
-function G = gmat(A, B, N1, N2, Nu)
+function G = gmat_single_phase(A, B, N1, N2, Nu)
 %GMAT  Build the GPC dynamic matrix G from a CARIMA/ARIMA model.
 %
 %   G = gmat(A, B, N1, N2, Nu)
