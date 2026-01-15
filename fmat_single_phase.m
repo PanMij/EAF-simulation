@@ -1,4 +1,4 @@
-function F = fmat(A, B, N1, N2, yk, dy_hist, du_hist)
+function F = fmat_single_phase(A, B, N1, N2, yk, dy_hist, du_hist)
 %FMAT  Build the GPC free-response vector F for a CARIMA/ARIMA model.
 %
 %   F = fmat(A, B, N1, N2, yk, dy_hist, du_hist)
