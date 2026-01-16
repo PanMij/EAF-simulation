@@ -21,6 +21,16 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
         return;
     end
 
+    % Initialize cached parameters to avoid use-before-assign errors.
+    if isempty(last_A)
+        last_A = A;
+        last_B = B;
+        last_N1 = N1;
+        last_N2 = N2;
+        last_Nu = Nu;
+        last_lam = lam;
+    end
+
     % Cache the gain matrix unless model/horizons/weight change.
     if init_flag || isempty(K) || isempty(last_A) || isempty(last_B) || ...
             ~isequal(A, last_A) || ~isequal(B, last_B) || ...
@@ -56,7 +66,7 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
     na = size(A, 3) - 1;
     nb = size(B, 3) - 1;
     if init_flag || isempty(dy_hist)
-        dy_hist = zeros(3, max(na, 0));
+        dy_hist = zeros(3, max(na, 1));
     end
     if init_flag || isempty(du_hist)
         du_hist = zeros(3, nb + 1);
@@ -70,7 +80,7 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
     if na > 0
         dy_hist_use = [dy_k, dy_hist(:, 1:end-1)];
     else
-        dy_hist_use = zeros(3, 0);
+        dy_hist_use = dy_hist(:, 1:1);
     end
     % Free response assumes Δu(k) = 0 (future moves handled by G*ΔU).
     du_hist_use = [zeros(3, 1), du_hist(:, 1:end-1)];
@@ -82,7 +92,8 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
     Rfull = zeros(N2, 3);
     Rfull(1, :) = y.';
     for i = 2:N2
-        Rfull(i, :) = alpha_vec.' .* Rfull(i - 1, :) + (1 - alpha_vec.').' .* r.';
+        alpha_row = alpha_vec.';
+        Rfull(i, :) = alpha_row .* Rfull(i - 1, :) + (1 - alpha_row) .* r.';
     end
     rows = N2 - N1 + 1;
     R = zeros(3 * rows, 1);
