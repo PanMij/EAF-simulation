@@ -35,7 +35,7 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
     if init_flag || isempty(K) || isempty(last_A) || isempty(last_B) || ...
             ~isequal(A, last_A) || ~isequal(B, last_B) || ...
             N1 ~= last_N1 || N2 ~= last_N2 || Nu ~= last_Nu || lam ~= last_lam
-        G = gmat_mimo(A, B, N1, N2, Nu);
+        G = gmat(A, B, N1, N2, Nu);
         K = (G' * G + lam * eye(3 * Nu)) \ G';
         last_A = A;
         last_B = B;
@@ -86,19 +86,19 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
     du_hist_use = [zeros(3, 1), du_hist(:, 1:end-1)];
 
     % Free response over N1..N2.
-    F = fmat_mimo(A, B, N1, N2, y, dy_hist_use, du_hist_use);
+    F = fmat(A, B, N1, N2, y, dy_hist_use, du_hist_use);
 
     % Reference trajectory over N1..N2 with exponential smoothing.
-    Rfull = zeros(N2, 3);
+    Rfull = zeros(N2+1, 3);
     Rfull(1, :) = y.';
-    for i = 2:N2
+    for i = 2:N2+1
         alpha_row = alpha_vec.';
         Rfull(i, :) = alpha_row .* Rfull(i - 1, :) + (1 - alpha_row) .* r.';
     end
     rows = N2 - N1 + 1;
     R = zeros(3 * rows, 1);
     for i = 1:3
-        r_i = Rfull(N1:N2, i);
+        r_i = Rfull(N1+1:N2+1, i);
         r0 = (i - 1) * rows + 1;
         R(r0:r0+rows-1) = r_i;
     end
@@ -116,103 +116,4 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
         dy_hist = [dy_k, dy_hist(:, 1:end-1)];
     end
     y_prev = y;
-end
-
-function G = gmat_mimo(A, B, N1, N2, Nu)
-    rows = N2 - N1 + 1;
-    G = zeros(3 * rows, 3 * Nu);
-    for i = 1:3
-        for j = 1:3
-            Aij = squeeze(A(i, j, :)).';
-            Bij = squeeze(B(i, j, :)).';
-            Gij = siso_gmat(Aij, Bij, N1, N2, Nu);
-            r0 = (i - 1) * rows + 1;
-            c0 = (j - 1) * Nu + 1;
-            G(r0:r0+rows-1, c0:c0+Nu-1) = Gij;
-        end
-    end
-end
-
-function G = siso_gmat(A, B, N1, N2, Nu)
-    na = numel(A) - 1;
-    nb = numel(B) - 1;
-
-    dy = zeros(1, N2 + na + 2);
-    y  = zeros(1, N2 + 2);
-    du_at = @(t) double(t == 0);
-
-    for t = 1:N2
-        acc = 0;
-        for i = 1:na
-            if (t - i) + 1 >= 1
-                acc = acc - A(i+1) * dy((t - i) + 1);
-            end
-        end
-        for j = 0:nb
-            acc = acc + B(j+1) * du_at(t - 1 - j);
-        end
-        dy(t + 1) = acc;
-        y(t + 1)  = y(t) + dy(t + 1);
-    end
-
-    g = y(2:N2+1);
-
-    rows = N2 - N1 + 1;
-    G = zeros(rows, Nu);
-    for r = 1:rows
-        for c = 1:Nu
-            idx = N1 + r - c;
-            if idx >= 1
-                G(r, c) = g(idx);
-            end
-        end
-    end
-end
-
-function F = fmat_mimo(A, B, N1, N2, yk, dy_hist, du_hist)
-    rows = N2 - N1 + 1;
-    F = zeros(3 * rows, 1);
-
-    for i = 1:3
-        dy_sim = zeros(3, N2);
-        y_sim  = zeros(1, N2);
-        y_prev = yk(i);
-
-        for t = 1:N2
-            dy_sum = 0;
-            for j = 1:3
-                Aij = squeeze(A(i, j, :)).';
-                Bij = squeeze(B(i, j, :)).';
-                na = numel(Aij) - 1;
-                nb = numel(Bij) - 1;
-
-                acc = 0;
-                for a = 1:na
-                    m = t - a;
-                    if m <= 0
-                        acc = acc - Aij(a+1) * dy_hist(i, -m + 1);
-                    else
-                        acc = acc - Aij(a+1) * dy_sim(j, m);
-                    end
-                end
-
-                for b = 0:nb
-                    n = t - 1 - b;
-                    if n <= 0
-                        acc = acc + Bij(b+1) * du_hist(j, -n + 1);
-                    end
-                end
-
-                dy_sim(j, t) = acc;
-                dy_sum = dy_sum + acc;
-            end
-
-            y_prev   = y_prev + dy_sum;
-            y_sim(t) = y_prev;
-        end
-
-        Fi = y_sim(N1:N2).';
-        r0 = (i - 1) * rows + 1;
-        F(r0:r0+rows-1) = Fi;
-    end
 end
