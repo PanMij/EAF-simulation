@@ -25,7 +25,14 @@ function G = gmat_single_phase(A, B, N1, N2, Nu)
 %     A = [1 1.0584 -0.1774];
 %     B = [-1.3157e-6 -1.8767e-6];
 %     G = gmat(A, B, 1, 50, 10);
+%
+%   This implementation reuses the same SISO dynamic-matrix logic
+%   as the internal helper in gpc_step.m.
 
+    G = siso_gmat(A, B, N1, N2, Nu);
+end
+
+function G = siso_gmat(A, B, N1, N2, Nu)
     % ---- checks ----
     if nargin ~= 5
         error('gmat requires exactly 5 inputs: A, B, N1, N2, Nu.');
