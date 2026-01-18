@@ -28,6 +28,10 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
         last_N1 = N1;
         last_N2 = N2;
         last_Nu = Nu;
+        if isscalar(lam)
+            lam = repmat(lam, [1 3]);
+        end
+        lam = lam(:).';
         last_lam = lam;
     end
 
@@ -36,7 +40,12 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset)
             ~isequal(A, last_A) || ~isequal(B, last_B) || ...
             N1 ~= last_N1 || N2 ~= last_N2 || Nu ~= last_Nu || lam ~= last_lam
         G = gmat(A, B, N1, N2, Nu);
-        K = (G' * G + lam * eye(3 * Nu)) \ G';
+        Lam = eye(3 * Nu);
+        for i = 1:3
+            r0 = (i - 1) * Nu + 1;
+            Lam(r0:r0+Nu-1, r0:r0+Nu-1) = lam(i) * Lam(r0:r0+Nu-1, r0:r0+Nu-1);
+        end
+        K = (G' * G + Lam) \ G';
         last_A = A;
         last_B = B;
         last_N1 = N1;
