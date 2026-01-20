@@ -1,5 +1,5 @@
-%% PID parameter sweep for ctrlSys
-% This script sweeps Kp, Ki, Kd and runs ctrlSys for each combination.
+%% GPC parameter sweep for ctrlSys
+% This script sweeps N2, Nu, and lam (1x3 vector) and runs ctrlSys.
 % Assumes:
 %   - Model name: 'ctrlSys'
 %   - PID gains are taken from workspace variables: Kp, Ki, Kd
@@ -8,30 +8,30 @@
 clear; clc;
 
 %% 1. Define model and parameter ranges
-mdl = 'ctrlSys_single_phase';
+workers = 8;
+stopTime = 1;
+save_path = fullfile(pwd, "results");
 
-% EDIT THESE RANGES to fit your system
-N2_vals = 5:5:30;
-Nu_vals = 1:1:3;
-lambda_vals = linspace(1e-6, 1e-3, 30);
+mdl = 'ctrlSys';
+A = load("data/GPC_params.mat", "A"); A = A.A;
+B = load("data/GPC_params.mat", "B"); B = B.B;
 
-stopTime = 20;  % EDIT: simulation stop time (seconds)
-
+% parameter ranges
+N2_vals = 15;
+Nu_vals = 1;
+lam1_vals = 0.2;
+% lam2_vals = [0.08 0.1 0.12 0.15];
+lam2_vals = [0.08 0.15];
+lam3_vals = 0.5;
+[lam1_grid, lam2_grid, lam3_grid] = ndgrid(lam1_vals, lam2_vals, lam3_vals);
+lam_vals = [lam1_grid(:), lam2_grid(:), lam3_grid(:)];
 
 %% 2. Preallocate result storage
 nN2 = numel(N2_vals);
 nNu = numel(Nu_vals);
-nlambda = numel(lambda_vals);
+nlambda = size(lam_vals, 1);
 
 nCases = nN2 * nNu * nlambda;
-
-results = struct( ...
-    'N2',       cell(nCases,1), ...
-    'Nu',       cell(nCases,1), ...
-    'lambda',   cell(nCases,1), ...
-    'SimOK',    cell(nCases,1), ...
-    'Metric',   cell(nCases,1) ...
-);  % You can rename/add metrics
 
 %% 3. Create SimulationInput array for all combinations
 in(nCases,1) = Simulink.SimulationInput(mdl);  % preallocate
@@ -47,89 +47,91 @@ for i = 1:nN2
 
             % Set stop time
             in(idx) = in(idx).setModelParameter('StopTime', num2str(stopTime));
-
+            
+            % Set GPC parameters
             N2 = N2_vals(i);
             Nu = Nu_vals(j);
-            lambda = lambda_vals(k);
+            lam = lam_vals(k, :);
 
             % Store parameters in the SimulationInput object
-            in(idx) = in(idx).setVariable('N2', N2);
-            in(idx) = in(idx).setVariable('Nu', Nu);
-            in(idx) = in(idx).setVariable('lam', lambda);
-
-            % Save for later
-            results(idx).N2 = N2;
-            results(idx).Nu = Nu;
-            results(idx).lambda = lambda;
+            in(idx) = in(idx).setVariable('A', A, 'Workspace', 'GPC');
+            in(idx) = in(idx).setVariable('B', B, 'Workspace', 'GPC');
+            in(idx) = in(idx).setVariable('N2', N2, 'Workspace', 'GPC');
+            in(idx) = in(idx).setVariable('Nu', Nu, 'Workspace', 'GPC');
+            in(idx) = in(idx).setVariable('lam', lam, 'Workspace', 'GPC');
+            in(idx) = in(idx).setUserString(sprintf("sim_%d", idx));
+            in(idx) = setPostSimFcn(in(idx), @(out) save_worker_output(out, in(idx), save_path));
         end
     end
 end
 
-%% 4. Batch size and number of batches
-batchSize = 64;  % Adjust this depending on your available memory
-nBatches = ceil(nCases / batchSize);  % Number of batches
-
-%% 5. Run simulations in batches (use parsim if you have Parallel Computing Toolbox)
+%% 4. Run simulations in batches (use parsim if you have Parallel Computing Toolbox)
 useParallel = true;  % set true if you want to try parsim
 
-for batchIdx = 1:nBatches
-    fprintf("==============BATCH START==============\n");
-    tic;
+fprintf("==============SIMULATION START==============\n");
+tic;
 
-    % Get the start and end indices for the current batch
-    startIdx = (batchIdx - 1) * batchSize + 1;
-    endIdx = min(batchIdx * batchSize, nCases);
-    
-    % Create the batch of simulation inputs
-    batchIn = in(startIdx:endIdx);
-    
-    if useParallel
-        % If Parallel Computing Toolbox is available, use parsim for this batch
-        if isempty(gcp('nocreate'))
-            parpool(8);  % Set number of workers if necessary
-        end
-        simOutBatch = parsim(batchIn, 'ShowSimulationManager', 'on');
-    else
-        % Run the batch without parallelization
-        simOutBatch = sim(batchIn, 'ShowSimulationManager', 'on');
+if useParallel
+    % If Parallel Computing Toolbox is available, use parsim for this batch
+    if isempty(gcp('nocreate'))
+        parpool(workers);  % Set number of workers if necessary
+    end
+    simOut = parsim(in, 'ShowSimulationManager', 'on');
+else
+    % Run the batch without parallelization
+    simOut = sim(in, 'ShowSimulationManager', 'on');
+end
+
+fprintf("Time Elapsed = %.2fs\n", toc);
+fprintf("==============SIMULATION END==============\n");
+
+delete(gcp('nocreate'));
+
+%% Local function
+function out = save_worker_output(out, in, save_path)
+    if ~isempty(out.ErrorMessage)
+        out = out.setUserData(out.ErrorMessage);
+        return
     end
     
-    %% 6. Extract metrics from simulation outputs for this batch
-    for k = 1:numel(simOutBatch)
-        try
-            % Placeholder: mark simulation as OK, but no metric computed
-            idx = startIdx + k - 1;
-            results(idx).SimOK = isempty(simOutBatch(k).ErrorMessage);
-            results(idx).Metric = NaN;   % Replace with your real metric
+    % Extract parameters
+    Nu = in.getVariable("Nu");
+    N2 = in.getVariable("N2");
+    lam = in.getVariable("lam");
+    idx = in.UserString;
 
-            logs = simOutBatch(k).logsout;
-            t_u = logs{1}.Values.Time;
-            u = logs{1}.Values.Data;
-            step = logs{3}.Values.Data;
-            t_r = logs{2}.Values.Time;
-            r = logs{2}.Values.Data;
+    % Extract data
+    logs = out.logsout;
+    t_u = logs{1}.Values.Time;
+    u = squeeze(logs{1}.Values.Data).';
+    t_r = logs{2}.Values.Time;
+    r = logs{2}.Values.Data;
+    t_step = logs{3}.Values.Time;
+    step = logs{3}.Values.Data;
 
-            fig = figure('Visible','off');
-            subplot(2, 1, 1);
-            plot(t_u, u);
-            subplot(2, 1, 2);
-            plot(t_u, step);
-            hold on
-            plot(t_r, r);
-            hold off
-            axis([0 t_u(end) 0.001 0.0025]); % limit the axis ranges
-            title(sprintf('N2=%d Nu=%d lam=%.2e', results(idx).N2, results(idx).Nu, results(idx).lambda));
-            filename = sprintf('./results/gpc_sweep_OK%d_N2%d_Nu%d_lam%.2e.png', results(idx).SimOK, results(idx).N2, results(idx).Nu, results(idx).lambda);
-            exportgraphics(fig, filename, 'Resolution', 300);
-            close(fig);
+    % Plot the results
+    r_ranges = [0.02 0.03; 0.006 0.035; 0.065 0.09];
+    fig = figure("Visible", "off");
 
-        catch ME
-            % In case of simulation failure or missing data
-            results(idx).SimOK = false;
-            results(idx).Metric = NaN;
-            fprintf('Case %d failed: %s\n', idx, ME.message);
-        end
+    subplot(2, 2, 1);
+    plot(t_u, u);
+    legend;
+    title(sprintf("Controller output (Nu=%d,N2=%d," + ...
+        "lam=[%.2f,%.2f,%.2f])", Nu, N2, lam(1), lam(2), lam(3)));
+    
+    for i = 1 : 3
+        subplot(2, 2, i + 1);
+        plot(t_step, step(:, i));
+        hold on;
+        plot(t_r, r(:, i));
+        hold off;
+        axis([0 t_step(end) r_ranges(i, :)]);
+        legend;
+        title(sprintf("Impedance of phase %d", i));
     end
-    fprintf("BatchIdx = %d, Time Elapsed = %.2fs\n", batchIdx, toc);
-    fprintf("==============BATCH END==============\n");
+
+    % Save the figure
+    filename = fullfile(save_path, idx + ".png");
+    exportgraphics(fig, filename, 'Resolution', 300);
+    close(fig);
 end
