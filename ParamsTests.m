@@ -8,7 +8,8 @@
 clear; clc;
 
 %% 1. Define model and parameter ranges
-workers = 8;
+useParallel = true;  % set true if you want to try parsim
+workers = 8;          % valid only if using parsim
 stopTime = 70;
 save_path = fullfile(pwd, "results");
 
@@ -17,12 +18,12 @@ A = load("data/GPC_params.mat", "A"); A = A.A;
 B = load("data/GPC_params.mat", "B"); B = B.B;
 
 % parameter ranges
-N2_vals = 15:3:30;
-Nu_vals = 2;
-alpha_vals = [0.5 0.6 0.7];
-lam1_vals = 0.2;
+N2_vals = 45;
+Nu_vals = [2 1];
+alpha_vals = 0.5;
+lam1_vals = [0.2 0.3];
 lam2_vals = 0.1;
-lam3_vals = 0.5;
+lam3_vals = [0.5 0.7];
 [N2_grid, Nu_grid, alpha_grid, lam1_grid, lam2_grid, lam3_grid] = ndgrid(N2_vals, Nu_vals, alpha_vals, lam1_vals, lam2_vals, lam3_vals);
 params = [N2_grid(:), Nu_grid(:), alpha_grid(:), lam1_grid(:), lam2_grid(:), lam3_grid(:)];
 
@@ -36,9 +37,17 @@ for i = 1:nCases
     % Set model name
     in(i) = in(i).setModelName(mdl);
 
-    % Set stop time
+    % Set model parameters
     in(i) = in(i).setModelParameter('StopTime', num2str(stopTime));
+    in(i) = in(i).setModelParameter('SimulationMode', 'rapid-accelerator');
+    % in(i) = in(i).setModelParameter('SimulationMode', 'accelerator');
     
+    % Drop unnecessary data to reduce worker-side memory. 
+    in(i) = in(i).setModelParameter('SaveTime', 'off');
+    % in(i) = in(i).setModelParameter('SaveOutput', 'off');
+    in(i) = in(i).setModelParameter('SaveState', 'off');
+    in(i) = in(i).setModelParameter('SignalLogging', 'off');
+
     % Set GPC parameters
     N2 = params(i, 1);
     Nu = params(i, 2);
@@ -58,9 +67,7 @@ for i = 1:nCases
     in(i) = setPostSimFcn(in(i), @(out) save_worker_output(out, in(curIdx), save_path));
 end
 
-%% 4. Run simulations in batches (use parsim if you have Parallel Computing Toolbox)
-useParallel = true;  % set true if you want to try parsim
-
+%% 4. Run simulations
 fprintf("==============SIMULATION START==============\n");
 tic;
 
@@ -69,16 +76,15 @@ if useParallel
     if isempty(gcp('nocreate'))
         parpool(workers);  % Set number of workers if necessary
     end
-    simOut = parsim(in, 'ShowSimulationManager', 'on');
+    simOut = parsim(in, 'ShowSimulationManager', 'off', 'ShowProgress', 'on');
+    delete(gcp('nocreate'));
 else
     % Run the batch without parallelization
-    simOut = sim(in, 'ShowSimulationManager', 'on');
+    simOut = sim(in, 'ShowSimulationManager', 'off', 'ShowProgress', 'on');
 end
 
 fprintf("Time Elapsed = %.2fs\n", toc);
 fprintf("==============SIMULATION END==============\n");
-
-delete(gcp('nocreate'));
 
 %% Local function
 function jobOut = save_worker_output(out, in, save_path)
@@ -91,16 +97,26 @@ function jobOut = save_worker_output(out, in, save_path)
     Nu = in.getVariable("Nu");
     N2 = in.getVariable("N2");
     lam = in.getVariable("lam");
+    alpha = in.getVariable("alpha");
     idx = in.UserString;
 
     % Extract data
-    logs = out.logsout;
-    t_u = logs{1}.Values.Time;
-    u = squeeze(logs{1}.Values.Data).';
-    t_r = logs{2}.Values.Time;
-    r = logs{2}.Values.Data;
-    t_step = logs{3}.Values.Time;
-    step = logs{3}.Values.Data;
+    logs = out.yout;
+    t_u = logs.getElement('u').Values.Time;
+    u = squeeze(logs.getElement('u').Values.Data);
+    if size(u, 1) < size(u, 2)
+        u = u.';
+    end
+    t_r = logs.getElement('r').Values.Time;
+    r = squeeze(logs.getElement('r').Values.Data);
+    if size(r, 1) < size(r, 2)
+        r = r.';
+    end
+    t_step = logs.getElement('step').Values.Time;
+    step = squeeze(logs.getElement('step').Values.Data);
+    if size(step, 1) < size(step, 2)
+        step = step.';
+    end
 
     % Plot the results
     r_ranges = [0.02 0.03; 0.006 0.035; 0.065 0.09];
@@ -110,7 +126,8 @@ function jobOut = save_worker_output(out, in, save_path)
     plot(t_u, u);
     legend("u1", "u2", "u3");
     title(sprintf("Controller output (Nu=%d,N2=%d," + ...
-        "lam=[%.2f,%.2f,%.2f])", Nu, N2, lam(1), lam(2), lam(3)));
+        "lam=[%.2f,%.2f,%.2f]),alpha=%.2f", ...
+        Nu, N2, lam(1), lam(2), lam(3), alpha));
     
     for i = 1 : 3
         subplot(2, 2, i + 1);
@@ -129,8 +146,9 @@ function jobOut = save_worker_output(out, in, save_path)
     close(fig);
 
     % Remove the simulation data to reduce memory usage
-    out.logsout = [];
-    out.tout = [];
+    % out.logsout = [];
+    % out.tout = [];
+
     meta = struct("Nu", Nu, "N2", N2, "lam", lam, "tag", idx);
     jobOut = setUserData(out, meta);
 end
