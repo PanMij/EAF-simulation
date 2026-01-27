@@ -9,21 +9,27 @@ clear; clc;
 
 %% 1. Define model and parameter ranges
 useParallel = true;  % set true if you want to try parsim
-workers = 8;          % valid only if using parsim
+workers = 6;          % valid only if using parsim
 stopTime = 70;
-save_path = fullfile(pwd, "results");
+save_path = fullfile(pwd, "results", "to_file_data");
+if ~isfolder(save_path)
+    mkdir(save_path)
+end
 
 mdl = 'ctrlSys';
 A = load("data/GPC_params.mat", "A"); A = A.A;
 B = load("data/GPC_params.mat", "B"); B = B.B;
 
 % parameter ranges
-N2_vals = 45;
-Nu_vals = [2 1];
-alpha_vals = 0.5;
-lam1_vals = [0.2 0.3];
-lam2_vals = 0.1;
-lam3_vals = [0.5 0.7];
+N2_vals = [25 45];
+Nu_vals = 2;
+alpha_vals = 0.6;
+% lam1_vals = 0.2;
+% lam2_vals = 0.1;
+% lam3_vals = 0.5;
+lam1_vals = [0.1 0.2 0.3];
+lam2_vals = [0.1 0.15];
+lam3_vals = [0.3 0.4 0.5];
 [N2_grid, Nu_grid, alpha_grid, lam1_grid, lam2_grid, lam3_grid] = ndgrid(N2_vals, Nu_vals, alpha_vals, lam1_vals, lam2_vals, lam3_vals);
 params = [N2_grid(:), Nu_grid(:), alpha_grid(:), lam1_grid(:), lam2_grid(:), lam3_grid(:)];
 
@@ -44,7 +50,7 @@ for i = 1:nCases
     
     % Drop unnecessary data to reduce worker-side memory. 
     in(i) = in(i).setModelParameter('SaveTime', 'off');
-    % in(i) = in(i).setModelParameter('SaveOutput', 'off');
+    in(i) = in(i).setModelParameter('SaveOutput', 'off');
     in(i) = in(i).setModelParameter('SaveState', 'off');
     in(i) = in(i).setModelParameter('SignalLogging', 'off');
 
@@ -63,8 +69,12 @@ for i = 1:nCases
     in(i) = in(i).setVariable('lam', lam, 'Workspace', 'GPC');
     in(i) = in(i).setUserString(sprintf("sim_%d", i));
 
-    curIdx = i;
-    in(i) = setPostSimFcn(in(i), @(out) save_worker_output(out, in(curIdx), save_path));
+    % Set output locations
+    in(i) = in(i).setBlockParameter( ...
+        "ctrlSys/To File step", "Filename", fullfile(save_path, "step.mat"), ...
+        "ctrlSys/To File u", "Filename", fullfile(save_path, "u.mat"), ...
+        "ctrlSys/To File r", "Filename", fullfile(save_path, "r.mat")...
+    );
 end
 
 %% 4. Run simulations
@@ -86,37 +96,29 @@ end
 fprintf("Time Elapsed = %.2fs\n", toc);
 fprintf("==============SIMULATION END==============\n");
 
+%% 5. Save the results
+fprintf("==============SAVING RESULTS==============\n");
+for i = 1 : nCases
+    save_worker_output(in, save_path, i);
+end
+fprintf("==============SAVING RESULTS END==============\n");
+
 %% Local function
-function jobOut = save_worker_output(out, in, save_path)
-    if ~isempty(out.ErrorMessage)
-        jobOut = setUserData(out, struct("tag", in.UserString, "error", out.ErrorMessage));
-        return
-    end
+function save_worker_output(in, save_path, idx)
+    step_path = fullfile(save_path, sprintf("step_%d.mat", idx));
+    r_path = fullfile(save_path, sprintf("r_%d.mat", idx));
+    u_path = fullfile(save_path, sprintf("u_%d.mat", idx));
     
     % Extract parameters
-    Nu = in.getVariable("Nu");
-    N2 = in.getVariable("N2");
-    lam = in.getVariable("lam");
-    alpha = in.getVariable("alpha");
-    idx = in.UserString;
+    Nu = in(idx).getVariable("Nu");
+    N2 = in(idx).getVariable("N2");
+    lam = in(idx).getVariable("lam");
+    alpha = in(idx).getVariable("alpha");
 
     % Extract data
-    logs = out.yout;
-    t_u = logs.getElement('u').Values.Time;
-    u = squeeze(logs.getElement('u').Values.Data);
-    if size(u, 1) < size(u, 2)
-        u = u.';
-    end
-    t_r = logs.getElement('r').Values.Time;
-    r = squeeze(logs.getElement('r').Values.Data);
-    if size(r, 1) < size(r, 2)
-        r = r.';
-    end
-    t_step = logs.getElement('step').Values.Time;
-    step = squeeze(logs.getElement('step').Values.Data);
-    if size(step, 1) < size(step, 2)
-        step = step.';
-    end
+    [t_u, u] = load_log(u_path, 'u');
+    [t_r, r] = load_log(r_path, 'r');
+    [t_step, step] = load_log(step_path, 'step');
 
     % Plot the results
     r_ranges = [0.02 0.03; 0.006 0.035; 0.065 0.09];
@@ -144,11 +146,13 @@ function jobOut = save_worker_output(out, in, save_path)
     filename = fullfile(save_path, idx + ".png");
     exportgraphics(fig, filename, 'Resolution', 300);
     close(fig);
+end
 
-    % Remove the simulation data to reduce memory usage
-    % out.logsout = [];
-    % out.tout = [];
-
-    meta = struct("Nu", Nu, "N2", N2, "lam", lam, "tag", idx);
-    jobOut = setUserData(out, meta);
+function [time, data] = load_log(path, var)
+    tmp = load(path, var);
+    time = tmp.(var).Time;
+    data = squeeze(tmp.(var).Data);
+    if ismatrix(data) && size(data, 1) < size(data, 2)
+        data = data.';
+    end
 end
