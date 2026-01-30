@@ -21,15 +21,12 @@ A = load("data/GPC_params.mat", "A"); A = A.A;
 B = load("data/GPC_params.mat", "B"); B = B.B;
 
 % parameter ranges
-N2_vals = [25 45];
+N2_vals = 25;
 Nu_vals = 2;
 alpha_vals = 0.6;
-% lam1_vals = 0.2;
-% lam2_vals = 0.1;
-% lam3_vals = 0.5;
-lam1_vals = [0.1 0.2 0.3];
-lam2_vals = [0.1 0.15];
-lam3_vals = [0.3 0.4 0.5];
+lam1_vals = 0.2;
+lam2_vals = 0.1;
+lam3_vals = 0.5;
 [N2_grid, Nu_grid, alpha_grid, lam1_grid, lam2_grid, lam3_grid] = ndgrid(N2_vals, Nu_vals, alpha_vals, lam1_vals, lam2_vals, lam3_vals);
 params = [N2_grid(:), Nu_grid(:), alpha_grid(:), lam1_grid(:), lam2_grid(:), lam3_grid(:)];
 
