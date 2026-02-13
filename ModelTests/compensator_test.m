@@ -1,8 +1,16 @@
 clc; clear;
 
+%% Remove the existing voltage_speed_lut.mat
+outDir = fullfile(pwd, "data");
+if ~exist(outDir, "dir"), mkdir(outDir); end
+lutFile = fullfile(outDir, "voltage_speed_lut.mat");
+if isfile(lutFile)
+    delete(lutFile);
+end
+
 %% Find the voltage-speed characteristics of the hydraulic system
 mdl = 'hydraulic_system_characteristic';
-voltage_range = linspace(-1.2, 1.2, 20);  % voltage range for LUT
+voltage_range = -1.2:0.1:1.2;    % voltage range for LUT
 
 for k = 1 : length(voltage_range) - 1
 
@@ -114,9 +122,6 @@ for k = 1 : length(voltage_range) - 1
     % title('Steady-state voltage-speed LUT');
 
     % Save LUT
-    outDir = fullfile(pwd, "data");
-    if ~exist(outDir, "dir"), mkdir(outDir); end
-    lutFile = fullfile(outDir, "voltage_speed_lut.mat");
     lut_speed = lut_speed(:);
     lut_voltage = lut_voltage(:);
     if ~isfile(lutFile)
