@@ -155,8 +155,8 @@ for k = 1 : length(voltage_range) - 1
 
     %% Clean up for next iteration
     clear out tv v tOp op v_ss lut_speed lut_voltage uniqSpeed uniqVoltage;
-    delete(fullfile(outDir, "v_tmp.mat"));
-    delete(fullfile(outDir, "op_tmp.mat"));
+    delete(fullfile(outDir, "v_tmp_1.mat"));
+    delete(fullfile(outDir, "op_tmp_1.mat"));
 
     fprintf("Finished processing k = %d voltage range [%.2f, %.2f].\n", k, voltage_range(k), voltage_range(k + 1));
 end
