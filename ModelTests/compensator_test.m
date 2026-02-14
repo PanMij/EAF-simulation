@@ -10,9 +10,10 @@ end
 
 %% Find the voltage-speed characteristics of the hydraulic system
 mdl = 'hydraulic_system_characteristic';
-voltage_range = -1.2:0.1:1.2;    % voltage range for LUT
+voltage_range = -1.2:0.05:1.2;    % voltage range for LUT
 
 for k = 1 : length(voltage_range) - 1
+    fprintf("Processing k = %d voltage range [%.2f, %.2f]...\n", k, voltage_range(k), voltage_range(k + 1));
 
     volSteps = voltage_range(k):0.0001:voltage_range(k+1);        % input voltage steps
     nVolSteps = length(volSteps);
@@ -27,17 +28,33 @@ for k = 1 : length(voltage_range) - 1
     simin = timeseries(u, t');  % input voltage time series
 
     in = Simulink.SimulationInput(mdl);
-    in = in.setModelParameter('StopTime', num2str(nVolSteps * tKeep));
+    % in = in.setModelParameter('StopTime', num2str(nVolSteps * tKeep));
+    in = in.setModelParameter('StopTime', '5');
     in = in.setModelParameter('SimulationMode', 'rapid-accelerator');
     in = in.setModelParameter('SaveTime', 'off');
+    in = in.setModelParameter('SaveOutput', 'off');
+    in = in.setModelParameter('SaveState', 'off');
+    in = in.setModelParameter('SignalLogging', 'off');
+
+    % Set output locations
+    in(i) = in(i).setBlockParameter( ...
+        "hydraulic_system_characteristic/To File v", "Filename", fullfile(outDir, "v_tmp.mat"), ...
+        "hydraulic_system_characteristic/To File op", "Filename", fullfile(outDir, "op_tmp.mat") ...
+    );
+
+    % Do not limit the electrode movement
     in = in.setVariable('L_ub', inf);
     in = in.setVariable('L_lb', -inf);
 
     out = sim(in, 'ShowProgress', 'on');
-    tv = out.yout.getElement('v').Values.Time;
-    v = out.yout.getElement('v').Values.Data;
-    tOp = out.yout.getElement('op').Values.Time;
-    op = out.yout.getElement('op').Values.Data;
+
+    % Load results from disk
+    load(fullfile(outDir, "v_tmp.mat"))
+    tv = v.Time;
+    v = v.Data;
+    % load(fullfile(outDir, "op_tmp.mat"))
+    % tOp = out.yout.getElement('op').Values.Time;
+    % op = out.yout.getElement('op').Values.Data;
     % tl = out.yout.getElement('l').Values.Time;
     % l = out.yout.getElement('l').Values.Data;
 
@@ -136,4 +153,11 @@ for k = 1 : length(voltage_range) - 1
         end
         save(lutFile, "lut_speed", "lut_voltage");
     end
+
+    %% Clean up for next iteration
+    clear out tv v tOp op v_ss lut_speed lut_voltage uniqSpeed uniqVoltage;
+    delete(fullfile(outDir, "v_tmp.mat"));
+    delete(fullfile(outDir, "op_tmp.mat"));
+
+    fprintf("Finished processing k = %d voltage range [%.2f, %.2f].\n", k, voltage_range(k), voltage_range(k + 1));
 end
