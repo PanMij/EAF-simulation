@@ -28,8 +28,7 @@ for k = 1 : length(voltage_range) - 1
     simin = timeseries(u, t');  % input voltage time series
 
     in = Simulink.SimulationInput(mdl);
-    % in = in.setModelParameter('StopTime', num2str(nVolSteps * tKeep));
-    in = in.setModelParameter('StopTime', '5');
+    in = in.setModelParameter('StopTime', num2str(nVolSteps * tKeep));
     in = in.setModelParameter('SimulationMode', 'rapid-accelerator');
     in = in.setModelParameter('SaveTime', 'off');
     in = in.setModelParameter('SaveOutput', 'off');
@@ -37,7 +36,7 @@ for k = 1 : length(voltage_range) - 1
     in = in.setModelParameter('SignalLogging', 'off');
 
     % Set output locations
-    in(i) = in(i).setBlockParameter( ...
+    in = in.setBlockParameter( ...
         "hydraulic_system_characteristic/To File v", "Filename", fullfile(outDir, "v_tmp.mat"), ...
         "hydraulic_system_characteristic/To File op", "Filename", fullfile(outDir, "op_tmp.mat") ...
     );
@@ -49,10 +48,10 @@ for k = 1 : length(voltage_range) - 1
     out = sim(in, 'ShowProgress', 'on');
 
     % Load results from disk
-    load(fullfile(outDir, "v_tmp.mat"))
+    load(fullfile(outDir, "v_tmp_1.mat"))
     tv = v.Time;
     v = v.Data;
-    % load(fullfile(outDir, "op_tmp.mat"))
+    % load(fullfile(outDir, "op_tmp_1.mat"))
     % tOp = out.yout.getElement('op').Values.Time;
     % op = out.yout.getElement('op').Values.Data;
     % tl = out.yout.getElement('l').Values.Time;
