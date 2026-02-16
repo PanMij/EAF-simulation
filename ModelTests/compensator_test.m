@@ -160,3 +160,23 @@ for k = 1 : length(voltage_range) - 1
 
     fprintf("Finished processing k = %d voltage range [%.2f, %.2f].\n", k, voltage_range(k), voltage_range(k + 1));
 end
+
+%% Post-process the LUT to ensure global monotonicity
+load(lutFile, "lut_speed", "lut_voltage");
+
+% Remove the duplicate speeds at the boundary between voltage ranges
+idx = find(lut_speed == min(lut_speed), 1, "last");
+lut_speed = lut_speed(idx:end);
+lut_voltage = lut_voltage(idx:end);
+idx = find(lut_speed == max(lut_speed), 1, "first");
+lut_speed = lut_speed(1:idx);
+lut_voltage = lut_voltage(1:idx);
+
+% Remove the duplicate speeds at the interior voltage range
+[uniqSpeed, ~, binIdx] = unique(lut_speed);
+uniqVoltage = accumarray(binIdx, lut_voltage, [], @mean);
+lut_speed = uniqSpeed;
+lut_voltage = uniqVoltage;
+
+% Save the final LUT
+save(lutFile, "lut_speed", "lut_voltage");
