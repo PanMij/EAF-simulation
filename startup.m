@@ -2,7 +2,14 @@
 % Adds necessary folders to MATLAB path
 
 projectRoot = fileparts(mfilename('fullpath'));
-addpath(fullfile(projectRoot, 'data'));
-addpath(fullfile(projectRoot, 'Identification'));
-addpath(fullfile(projectRoot, 'models'));
-addpath(fullfile(projectRoot, 'ModelTests'));
+
+folders = {
+    'data'
+    'Identification'
+    'models'
+    'ModelTests'
+};
+
+for i = 1:numel(folders)
+    addpath(genpath(fullfile(projectRoot, folders{i})));
+end
