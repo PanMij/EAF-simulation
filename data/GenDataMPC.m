@@ -7,6 +7,8 @@ mdl = 'PlantIdentificationMPC';
 % L_init_ls = linspace(0.1025, 0.4187, 10);
 % L_init_ls = L_init_ls(2:end-1);
 L_init_ls = 0.1728;
+Rn_seed = [4949 4511 6499];
+Rn_SNR = 40;
 
 %% Generate data
 load("data/voltage_speed_lut_0.0001.mat");
@@ -14,6 +16,8 @@ simIn(numel(L_init_ls), 1) = Simulink.SimulationInput(mdl);
 for i = 1:numel(simIn)
     simIn(i) = simIn(i).setModelName(mdl);
     simIn(i) = simIn(i).setVariable('L_init', L_init_ls(i));
+    simIn(i) = simIn(i).setVariable('Rn_seed', Rn_seed);
+    simIn(i) = simIn(i).setVariable('Rn_SNR', Rn_SNR);
 
     % simIn(i) = simIn(i).setModelParameter('StopTime', '5');
     simIn(i) = simIn(i).setModelParameter('SimulationMode', 'rapid-accelerator');
@@ -47,10 +51,11 @@ end
 data = out.yout.getElement('data').Values;
 t = data.Time;
 u = data.Data(:, 1:3);
-y = data.Data(:, 4:6);
-l_hy = data.Data(:, 7:9);
+l_hy = data.Data(:, 4:6);
+y = data.Data(:, 7:9);
+y_real = data.Data(:, 10:12);
 data_path = fullfile(save_path, file_name);
-save(data_path, "t", "y", "u", "l_hy", "-v7.3");
+save(data_path, "t", "u", "l_hy", "y", "y_real","-v7.3");
 
 fprintf("%s\n", data_path);
 out = out.setUserString(data_path);
