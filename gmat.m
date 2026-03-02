@@ -36,8 +36,8 @@ function G = gmat_mimo(A, B, N1, N2, Nu)
     if size(A, 1) ~= 3 || size(A, 2) ~= 3 || size(B, 1) ~= 3 || size(B, 2) ~= 3
         error('A and B must be sized 3x3x(na+1) and 3x3x(nb+1).');
     end
-    if any(A(:, :, 1) ~= 1, 'all')
-        error('A(:,:,1) must be all ones (leading coefficient).');
+    if ~isequal(A(:,:,1), eye(3))
+        error('A(:,:,1) must be identity (leading matrix coefficient).');
     end
     validateattributes(N1, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
         mfilename, 'N1');
