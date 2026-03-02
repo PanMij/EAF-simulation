@@ -111,6 +111,7 @@ codegen/
 octave-workspace
 
 # Simulation results
+data/
 results/
 *.mat
 
