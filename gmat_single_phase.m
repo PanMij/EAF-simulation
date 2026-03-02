@@ -42,8 +42,8 @@ function G = siso_gmat(A, B, N1, N2, Nu)
     end
     A = A(:).';  % ensure row
     B = B(:).';  % ensure row
-    if isempty(A) || A(1) ~= 1
-        error('A must be non-empty with A(1) == 1.');
+    if isempty(A)
+        error('A must be non-empty');
     end
     validateattributes(N1, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
         mfilename, 'N1');
