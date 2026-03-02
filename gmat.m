@@ -27,27 +27,26 @@ end
 
 function G = gmat_mimo(A, B, N1, N2, Nu)
     % ---- checks ----
-    if nargin ~= 5
-        error('gmat requires exactly 5 inputs: A, B, N1, N2, Nu.');
-    end
-    if ~isnumeric(A) || ~isnumeric(B) || ndims(A) ~= 3 || ndims(B) ~= 3
-        error('A and B must be 3-D numeric arrays sized 3x3x(na+1) and 3x3x(nb+1).');
-    end
-    if size(A, 1) ~= 3 || size(A, 2) ~= 3 || size(B, 1) ~= 3 || size(B, 2) ~= 3
-        error('A and B must be sized 3x3x(na+1) and 3x3x(nb+1).');
-    end
-    if ~isequal(A(:,:,1), eye(3))
-        error('A(:,:,1) must be identity (leading matrix coefficient).');
-    end
-    validateattributes(N1, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'N1');
-    validateattributes(N2, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'N2');
-    validateattributes(Nu, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'Nu');
-    if N2 <= N1
-        error('Require N2 > N1.');
-    end
+    assert(nargin == 5);
+
+    assert(isnumeric(A) && isnumeric(B) && ...
+           ndims(A) == 3 && ndims(B) == 3);
+
+    assert(size(A,1) == 3 && size(A,2) == 3 && ...
+           size(B,1) == 3 && size(B,2) == 3);
+
+    assert(isequal(A(:,:,1), eye(3)));
+
+    assert(isscalar(N1) && isnumeric(N1) && isfinite(N1) && ...
+           N1 >= 1 && N1 == floor(N1));
+
+    assert(isscalar(N2) && isnumeric(N2) && isfinite(N2) && ...
+           N2 >= 1 && N2 == floor(N2));
+
+    assert(isscalar(Nu) && isnumeric(Nu) && isfinite(Nu) && ...
+           Nu >= 1 && Nu == floor(Nu));
+
+    assert(N2 > N1);
 
     rows = N2 - N1 + 1;
     G = zeros(3 * rows, 3 * Nu);

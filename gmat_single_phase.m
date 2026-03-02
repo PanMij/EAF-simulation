@@ -34,26 +34,24 @@ end
 
 function G = siso_gmat(A, B, N1, N2, Nu)
     % ---- checks ----
-    if nargin ~= 5
-        error('gmat requires exactly 5 inputs: A, B, N1, N2, Nu.');
-    end
-    if ~isvector(A) || ~isvector(B)
-        error('A and B must be row/column vectors.');
-    end
+    assert(nargin == 5);
+    assert(isvector(A) && isvector(B));
+
     A = A(:).';  % ensure row
     B = B(:).';  % ensure row
-    if isempty(A)
-        error('A must be non-empty');
-    end
-    validateattributes(N1, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'N1');
-    validateattributes(N2, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'N2');
-    validateattributes(Nu, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'Nu');
-    if N2 <= N1
-        error('Require N2 > N1.');
-    end
+
+    assert(~isempty(A));
+    
+    assert(isscalar(N1) && isnumeric(N1) && isfinite(N1) && ...
+           N1 >= 1 && N1 == floor(N1));
+
+    assert(isscalar(N2) && isnumeric(N2) && isfinite(N2) && ...
+           N2 >= 1 && N2 == floor(N2));
+
+    assert(isscalar(Nu) && isnumeric(Nu) && isfinite(Nu) && ...
+           Nu >= 1 && Nu == floor(Nu));
+
+    assert(N2 > N1);
 
     na = numel(A) - 1;  % order of A
     nb = numel(B) - 1;  % order of B

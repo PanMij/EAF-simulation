@@ -28,37 +28,33 @@ end
 
 function F = fmat_mimo_carima(A, B, C, N1, N2, yk, dy_hist, du_hist, e_hist)
     % ---- checks ----
-    if nargin ~= 9
-        error(['fmat requires exactly 9 inputs: A, B, C, N1, N2, ' ...
-               'yk, dy_hist, du_hist, e_hist.']);
-    end
-    if ~isnumeric(A) || ~isnumeric(B) || ~isnumeric(C) || ...
-            ndims(A) ~= 3 || ndims(B) ~= 3 || ndims(C) ~= 3
-        error('A, B, C must be 3-D numeric arrays.');
-    end
-    if size(A,1) ~= 3 || size(A,2) ~= 3 || ...
-       size(B,1) ~= 3 || size(B,2) ~= 3 || ...
-       size(C,1) ~= 3 || size(C,2) ~= 3
-        error('A, B, C must be sized 3x3x(order+1).');
-    end
+    assert(nargin == 9);
 
-    validateattributes(N1, {'numeric'}, {'scalar','integer','>=',1,'finite'}, mfilename, 'N1');
-    validateattributes(N2, {'numeric'}, {'scalar','integer','>',N1,'finite'}, mfilename, 'N2');
-    validateattributes(yk, {'numeric'}, {'vector','numel',3,'finite'}, mfilename, 'yk');
+    assert(isnumeric(A) && isnumeric(B) && isnumeric(C) && ...
+           ndims(A) == 3 && ndims(B) == 3 && ndims(C) == 3);
+
+    assert(size(A,1) == 3 && size(A,2) == 3 && ...
+           size(B,1) == 3 && size(B,2) == 3 && ...
+           size(C,1) == 3 && size(C,2) == 3);
+
+    assert(isscalar(N1) && isnumeric(N1) && isfinite(N1) && ...
+           N1 >= 1 && N1 == floor(N1));
+
+    assert(isscalar(N2) && isnumeric(N2) && isfinite(N2) && ...
+           N2 > N1 && N2 == floor(N2));
+
+    assert(isnumeric(yk) && numel(yk) == 3 && all(isfinite(yk(:))));
+
     yk = yk(:);
 
     na = size(A,3) - 1;
     nb = size(B,3) - 1;
     nc = size(C,3) - 1;
 
-    if size(dy_hist,1) ~= 3 || size(dy_hist,2) < na
-        error('dy_hist must be 3xna (or wider).');
-    end
-    if size(du_hist,1) ~= 3 || size(du_hist,2) < (nb+1)
-        error('du_hist must be 3x(nb+1) (or wider).');
-    end
-    if nc > 0 && (size(e_hist,1) ~= 3 || size(e_hist,2) < nc)
-        error('e_hist must be 3xnc (or wider).');
+    assert(size(dy_hist,1) == 3 && size(dy_hist,2) >= na);
+    assert(size(du_hist,1) == 3 && size(du_hist,2) >= (nb+1));
+    if nc > 0
+        assert(size(e_hist,1) == 3 && size(e_hist,2) >= nc);
     end
 
     % Trim to required lengths
