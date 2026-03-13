@@ -4,26 +4,30 @@ clear; clc;
 useParallel = true;
 workers = 2;
 mdl = 'PlantIdentificationMPC';
+str = {"est", "val"};
 L_init_ls = 0.1728;
+% PRBS params
 Tg = 20;
 Tp = 10;
-Rn_seed = {[4949 4511 6499], [2625, 5109, 7021]};
-Rn_SNR = 40;
 prbs_seed = {[5 7 3], [7 3 5]};
 nSeq = {8, 4};
-str = {"est", "val"};
+% Noise params
+Rn_seed = {[4949 4511 6499], [2625, 5109, 7021]};
+Rn_SNR = 40;
+dist_seed = {[67905 75798 74338], [ 39283 65582 17201]};
 
 %% Generate data
 simIn(2, 1) = Simulink.SimulationInput(mdl);
 for i = 1:numel(simIn)
     simIn(i) = simIn(i).setModelName(mdl);
     simIn(i) = simIn(i).setVariable('L_init', L_init_ls);
-    simIn(i) = simIn(i).setVariable('Rn_seed', Rn_seed{i});
-    simIn(i) = simIn(i).setVariable('Rn_SNR', Rn_SNR);
     simIn(i) = simIn(i).setVariable('Tg', Tg, 'Workspace', 'PlantIdentificationMPC');
     simIn(i) = simIn(i).setVariable('Tp', Tp, 'Workspace', 'PlantIdentificationMPC');
     simIn(i) = simIn(i).setVariable('prbs_seed', prbs_seed{i}, 'Workspace', 'PlantIdentificationMPC');
     simIn(i) = simIn(i).setVariable('nSeq', nSeq{i}, 'Workspace', 'PlantIdentificationMPC');
+    simIn(i) = simIn(i).setVariable('Rn_seed', Rn_seed{i});
+    simIn(i) = simIn(i).setVariable('Rn_SNR', Rn_SNR);
+    simIn(i) = simIn(i).setVariable('dist_seed', dist_seed{i});
 
     % simIn(i) = simIn(i).setModelParameter('StopTime', '5');
     simIn(i) = simIn(i).setModelParameter('SimulationMode', 'rapid-accelerator');

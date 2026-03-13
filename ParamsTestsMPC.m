@@ -19,8 +19,8 @@ mdl = 'ctrlSys_mpc';
 controller_workspace = 'MPCQP';
 
 % parameter ranges
-N2_vals = 20 : 10 : 100;
-Nu_vals = 1 : 1 : 6;
+N2_vals = 100;
+Nu_vals = 1;
 lam1_vals = 0.2 : 0.2 : 1;
 lam2_vals = 0.2 : 0.2 : 1;
 lam3_vals = 0.2 : 0.2 : 1;
@@ -108,7 +108,7 @@ function save_worker_output(in, save_path, idx)
     [t_step, step] = load_log(step_path, 'step');
 
     % Plot the results
-    r_ranges = [0.02 0.03; 0.006 0.035; 0.065 0.09];
+    r_ranges = [0.039 0.069; 0.045 0.078; 0.081 0.114];
     fig = figure("Color", "none", "Visible", "off");
 
     subplot(2, 2, 1);
