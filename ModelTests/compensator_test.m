@@ -17,6 +17,7 @@ for k = 1 : length(voltage_range) - 1
 
     volSteps = voltage_range(k):0.0001:voltage_range(k+1);        % input voltage steps
     nVolSteps = length(volSteps);
+    
     tKeep = 4;                   % time for keeping each step
     tStep = 1;                % simulation time step
     t = 0:tStep:nVolSteps * tKeep;    % time vector
@@ -44,6 +45,9 @@ for k = 1 : length(voltage_range) - 1
     % Do not limit the electrode movement
     in = in.setVariable('L_ub', inf);
     in = in.setVariable('L_lb', -inf);
+
+    % Use nonlinear valve gate
+    in = in.setVariable('GateChoice', "nonlinear", 'Workspace', 'hydraulic_system_characteristic');
 
     out = sim(in, 'ShowProgress', 'on');
 
