@@ -1,15 +1,17 @@
 clc;clear;
-close all;
+% close all;
 
-load("data/noise_40/GPC_params_ss2car.mat");
+load("data/noise_40/GPC_params_arx_40.mat");
+% load("data/noise-free/GPC_params.mat"); C = eye(3);
 load("data/noise_40/IdMPC_val.mat");
 startIdx = 20;
 N1 = 0;
-Np = 2000;
+Np = 100;
 u = u(startIdx + N1:startIdx + N1 + Np - 1, :);
 y = y_real(startIdx + N1:startIdx + N1 + Np - 1, :);
 y = diff(y);
 u = diff(u);
+% u(50:end, :) = 0;
 
 A_flat = reshape(A(:,:,2:end), 3, []);
 B_flat = reshape(B, 3, []);
@@ -20,11 +22,23 @@ nc = 0;
 d = 0;
 
 [ysim, esim, k0] = carima_free_run_predict_mimo(y, u, theta, na, nb, nc, d);
+
+figure;
 for k = 1 : 3
     subplot(3, 1, k);
     plot([ysim(:, k) y(:, k)]);
     legend("ysim", "y");
 end
+
+y_raw = y_real(startIdx + N1:startIdx + N1 + Np - 1, :);
+ysimc = y_raw(k0-1, :) + cumsum(ysim);
+figure;
+for k = 1 : 3
+    subplot(3, 1, k);
+    plot([ysimc(:, k) y_raw(2:end, k)]);
+    legend("ysimc", "y_raw");
+end
+
 
 function [ysim, esim, k0] = carima_free_run_predict_mimo(y, u, theta, na, nb, nc, d, kStart)
 % Free-run simulation for MIMO incremental CARIMA/ARMAX model
