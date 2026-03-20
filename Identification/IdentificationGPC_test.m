@@ -1,8 +1,8 @@
 clc;clear;close all;
 
 %% 1. Load + format data
-data_path_est = fullfile("data", "noise_40", "IdMPC_est.mat");
-data_path_val = fullfile("data", "noise_40", "IdMPC_val.mat");
+data_path_est = fullfile("data", "noise-free", "IdMPC_est.mat");
+data_path_val = fullfile("data", "noise-free", "IdMPC_val.mat");
 
 Ts = 0.02;
 load(data_path_est);
@@ -55,8 +55,8 @@ data_est = data;
 load(data_path_val);
 t = t(startIdx:end, :);
 u = u(startIdx:end, :);
-% y = y(startIdx:end, :);
-y = y_real(startIdx:end, :);
+y = y(startIdx:end, :);
+% y = y_real(startIdx:end, :);
 l_hy = l_hy(startIdx:end, :);
 u = diff(u);
 y = diff(y);
@@ -71,12 +71,12 @@ y_est = data_est.y;   % these are already diff(y)
 u_est = data_est.u;   % these are already diff(u)
 y_val = data_val.y;
 u_val = data_val.u;
-% n_a = 2:8;
-% n_b = 1:8;
-% n_c = 0:2;    % <-- noise polynomial order C(q^-1) = 1 + c1 q^-1 + ... + cnc q^-nc
-n_c = 0;
-n_a = 3;
-n_b = 3;
+n_a = 1:10;
+n_b = 1:10;
+n_c = 0:2;    % <-- noise polynomial order C(q^-1) = 1 + c1 q^-1 + ... + cnc q^-nc
+% n_c = 0;
+% n_a = 2;
+% n_b = 2;
 d   = 0;      % input delay
 maxELSIter = 20;
 tolELS = 1e-4;
@@ -87,25 +87,26 @@ for na = n_a
     for nb = n_b
         for nc = n_c
             try
-                % [theta_hat, yhat_est, ehat_est, info] = carima_els_mimo( ...
-                %     y_est, u_est, na, nb, nc, d, maxELSIter, tolELS);
-                theta_hat = arx_ls_mimo(y_est, u_est, na, nb, d);
-                % One-step-ahead validation prediction (uses noise model recursively)
-                [yhat_val, ~, k0] = carima_osa_predict_mimo( ...
-                    y_val, u_val, theta_hat, na, nb, nc, d);
-                idx = k0:size(y_val,1);
-                fit = 100 * (1 - norm(y_val(idx,:) - yhat_val(idx,:)) / ...
-                    norm(y_val(idx,:) - mean(y_val(idx,:),1)));
-                % fprintf("na=%d, nb=%d, nc=%d, fit=%.2f%%, ELS iters=%d\n", ...
-                %     na, nb, nc, fit, info.nIter);
-                if fit > fit_best + 0.1
+                arx_na = diag([na na na]);
+                % arx_na = na * ones(3, 3);
+                arx_nb = nb * ones(3, 3);
+                arx_nk = ones(3, 3);
+                armax_nc = nc * ones(3, 1);
+                % sys_arx = arx(data_est, [arx_na arx_nb arx_nk]);
+                % [~, fit, ~] = compare(data_val, sys_arx);
+                sys_armax = armax(data_est, [arx_na, arx_nb, armax_nc, arx_nk]);
+                [~, fit, ~] = compare(data_val, sys_armax);
+                if fit > fit_best
                     fit_best = fit;
-                    theta_best = theta_hat;
+                    % bestSys = sys_arx;
+                    bestSys = sys_armax;
                     na_best = na;
                     nb_best = nb;
                     nc_best = nc;
                     % info_best = info;
                 end
+                fprintf("\nOrders: na=%d, nb=%d, nc=%d, fit=%.2f%%\n", ...
+                    na, nb, nc, fit);
             catch ME
                 fprintf("na=%d, nb=%d, nc=%d failed: %s\n", na, nb, nc, ME.message);
             end
@@ -114,6 +115,23 @@ for na = n_a
 end
 fprintf("\nBest orders: na=%d, nb=%d, nc=%d, fit=%.2f%%\n", ...
     na_best, nb_best, nc_best, fit_best);
+
+A = zeros([3, 3, na_best + 1]);
+for i = 1:3
+    for j = 1:3
+        A(i, j, :) = bestSys.A{i, j};
+    end
+end
+B = zeros([3, 3, nb_best]);
+for i = 1:3
+    for j = 1:3
+        B(i, j, :) = bestSys.B{i, j}(2:end);
+    end
+end
+C = zeros([3, 3, nc_best + 1]);
+for i = 1:3
+    C(i, i, :) = bestSys.C{i};
+end
 
 %% 5. Validate the model
 y = data_val.y;   % diff(y)
@@ -155,7 +173,7 @@ end
 xlabel("sample");
 
 %% Free run test
-[ysim, esim, k0] = carima_free_run_predict_mimo(y_val, u_val, theta_best, na, nb, nc, d);
+% [ysim, esim, k0] = carima_free_run_predict_mimo(y_val, u_val, theta_best, na, nb, nc, d);
 
 
 %% 6. GPC parameters
