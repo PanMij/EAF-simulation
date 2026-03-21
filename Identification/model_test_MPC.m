@@ -1,10 +1,10 @@
 clc;clear;close all;
 
-load("data/noise_40/MPC_params.mat");
+load("data/noise_40/MPC_params_pem_40.mat");
 load("data/noise_40/IdMPC_val.mat");
 startIdx = 20;
 N1 = 1;
-Np = 500;
+Np = 200;
 u = u(startIdx + N1:startIdx + N1 + Np - 1, :);
 y = y_real(startIdx + N1:startIdx + N1 + Np - 1, :);
 
