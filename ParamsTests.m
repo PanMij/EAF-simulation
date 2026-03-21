@@ -9,26 +9,26 @@ clear; clc;
 
 %% 1. Define model and parameter ranges
 useParallel = true;  % set true if you want to try parsim
-workers = 6;          % valid only if using parsim
+workers = 8;          % valid only if using parsim
 stopTime = 70;
-save_path = fullfile(pwd, "results", "to_file_data");
+save_path = fullfile(pwd, "results", "to_file_data_gpc");
 if ~isfolder(save_path)
     mkdir(save_path)
 end
 
-mdl = 'ctrlSys';
-A = load("data/GPC_params.mat", "A"); A = A.A;
-B = load("data/GPC_params.mat", "B"); B = B.B;
+mdl = 'ctrlSys_mpc';
+controller_workspace = 'GPC';
 
 % parameter ranges
-N2_vals = 25;
-Nu_vals = 2;
-alpha_vals = 0.6;
-lam1_vals = 0.2;
-lam2_vals = 0.1;
-lam3_vals = 0.5;
+N2_vals = [60 70 80];
+Nu_vals = [10 15 20];
+alpha_vals = 0.5;
+lam1_vals = [20 25 30 40];
+lam2_vals = [20 25 30 40];
+lam3_vals = [20 25 30 40];
 [N2_grid, Nu_grid, alpha_grid, lam1_grid, lam2_grid, lam3_grid] = ndgrid(N2_vals, Nu_vals, alpha_vals, lam1_vals, lam2_vals, lam3_vals);
 params = [N2_grid(:), Nu_grid(:), alpha_grid(:), lam1_grid(:), lam2_grid(:), lam3_grid(:)];
+params = params(params(:, 4) == params(:, 5) & params(:, 5) == params(:, 6), :);
 
 %% 2. Preallocate result storage
 nCases = size(params, 1);
@@ -58,19 +58,17 @@ for i = 1:nCases
     lam = params(i, 4:6);
 
     % Store parameters in the SimulationInput object
-    in(i) = in(i).setVariable('A', A, 'Workspace', 'GPC');
-    in(i) = in(i).setVariable('B', B, 'Workspace', 'GPC');
-    in(i) = in(i).setVariable('N2', N2, 'Workspace', 'GPC');
-    in(i) = in(i).setVariable('Nu', Nu, 'Workspace', 'GPC');
-    in(i) = in(i).setVariable('alpha', alpha, 'Workspace', 'GPC');
-    in(i) = in(i).setVariable('lam', lam, 'Workspace', 'GPC');
+    in(i) = in(i).setVariable('N2', N2, 'Workspace', controller_workspace);
+    in(i) = in(i).setVariable('Nu', Nu, 'Workspace', controller_workspace);
+    in(i) = in(i).setVariable('alpha', alpha, 'Workspace', controller_workspace);
+    in(i) = in(i).setVariable('lam', lam, 'Workspace', controller_workspace);
     in(i) = in(i).setUserString(sprintf("sim_%d", i));
 
     % Set output locations
     in(i) = in(i).setBlockParameter( ...
-        "ctrlSys/To File step", "Filename", fullfile(save_path, "step.mat"), ...
-        "ctrlSys/To File u", "Filename", fullfile(save_path, "u.mat"), ...
-        "ctrlSys/To File r", "Filename", fullfile(save_path, "r.mat")...
+        mdl + "/To File step", "Filename", fullfile(save_path, "step.mat"), ...
+        mdl + "/To File u", "Filename", fullfile(save_path, "u.mat"), ...
+        mdl + "/To File r", "Filename", fullfile(save_path, "r.mat")...
     );
 end
 
@@ -118,7 +116,7 @@ function save_worker_output(in, save_path, idx)
     [t_step, step] = load_log(step_path, 'step');
 
     % Plot the results
-    r_ranges = [0.02 0.03; 0.006 0.035; 0.065 0.09];
+    r_ranges = [0.039 0.069; 0.045 0.078; 0.081 0.114];
     fig = figure("Color", "none", "Visible", "off");
 
     subplot(2, 2, 1);
