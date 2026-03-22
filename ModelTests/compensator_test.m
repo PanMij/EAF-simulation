@@ -1,0 +1,186 @@
+clc; clear;
+
+%% Remove the existing voltage_speed_lut.mat
+outDir = fullfile(pwd, "data");
+if ~exist(outDir, "dir"), mkdir(outDir); end
+lutFile = fullfile(outDir, "voltage_speed_lut.mat");
+if isfile(lutFile)
+    delete(lutFile);
+end
+
+%% Find the voltage-speed characteristics of the hydraulic system
+mdl = 'hydraulic_system_characteristic';
+voltage_range = -1.2:0.05:1.2;    % voltage range for LUT
+
+for k = 1 : length(voltage_range) - 1
+    fprintf("Processing k = %d voltage range [%.2f, %.2f]...\n", k, voltage_range(k), voltage_range(k + 1));
+
+    volSteps = voltage_range(k):0.0001:voltage_range(k+1);        % input voltage steps
+    nVolSteps = length(volSteps);
+    
+    tKeep = 4;                   % time for keeping each step
+    tStep = 1;                % simulation time step
+    t = 0:tStep:nVolSteps * tKeep;    % time vector
+    u = zeros(length(t), 1);
+    for i = 0 : nVolSteps - 1
+        u(i * tKeep / tStep + 1 : (i + 1) * tKeep / tStep) = volSteps(i + 1);
+    end
+    u(end) = volSteps(end);
+    simin = timeseries(u, t');  % input voltage time series
+
+    in = Simulink.SimulationInput(mdl);
+    in = in.setModelParameter('StopTime', num2str(nVolSteps * tKeep));
+    in = in.setModelParameter('SimulationMode', 'rapid-accelerator');
+    in = in.setModelParameter('SaveTime', 'off');
+    in = in.setModelParameter('SaveOutput', 'off');
+    in = in.setModelParameter('SaveState', 'off');
+    in = in.setModelParameter('SignalLogging', 'off');
+
+    % Set output locations
+    in = in.setBlockParameter( ...
+        "hydraulic_system_characteristic/To File v", "Filename", fullfile(outDir, "v_tmp.mat"), ...
+        "hydraulic_system_characteristic/To File op", "Filename", fullfile(outDir, "op_tmp.mat") ...
+    );
+
+    % Do not limit the electrode movement
+    in = in.setVariable('L_ub', inf);
+    in = in.setVariable('L_lb', -inf);
+
+    % Use nonlinear valve gate
+    in = in.setVariable('GateChoice', "nonlinear", 'Workspace', 'hydraulic_system_characteristic');
+
+    out = sim(in, 'ShowProgress', 'on');
+
+    % Load results from disk
+    load(fullfile(outDir, "v_tmp_1.mat"))
+    tv = v.Time;
+    v = v.Data;
+    % load(fullfile(outDir, "op_tmp_1.mat"))
+    % tOp = out.yout.getElement('op').Values.Time;
+    % op = out.yout.getElement('op').Values.Data;
+    % tl = out.yout.getElement('l').Values.Time;
+    % l = out.yout.getElement('l').Values.Data;
+
+    % figure;
+    % subplot(2,1,1);
+    % plot(t, u, 'LineWidth', 1.5);
+    % title('Input Voltage');
+    % subplot(2,1,2);
+    % plot(tv, v, 'LineWidth', 1.5);
+    % title('Load speed');
+    % subplot(2,2,3);
+    % plot(tOp, op, 'LineWidth', 1.5);
+    % title('valve opening');
+    % subplot(2,2,4);
+    % plot(tl, l, 'LineWidth', 1.5);
+    % title('Load position');
+
+    %% Build LUT using steady-state speed within each voltage step
+    tSettle = 0.6 * tKeep;  % ignore initial transient in each step
+    minSamples = 5;
+    v_ss = nan(nVolSteps, 1);
+
+    for i = 1:nVolSteps
+        t0 = (i - 1) * tKeep;
+        t1 = i * tKeep;
+        mask = tv >= (t0 + tSettle) & tv < t1;
+        if nnz(mask) < minSamples
+            mask = tv >= (t0 + 0.8 * tKeep) & tv < t1;
+        end
+        if nnz(mask) > 0
+            v_ss(i) = mean(v(mask));
+        end
+    end
+
+    valid = ~isnan(v_ss);
+    lut_speed = v_ss(valid);
+    lut_voltage = volSteps(valid).';
+
+    % Ensure monotonic lookup in speed domain
+    [lut_speed, sortIdx] = sort(lut_speed);
+    lut_voltage = lut_voltage(sortIdx);
+
+    % Collapse duplicate/near-duplicate speeds to one-to-one mapping
+    % - Boundary stacks: pick value closest to the monotonic part
+    % - Interior stacks: use mean value
+    speedTol = 1e-4;
+    speedBins = round(lut_speed / speedTol) * speedTol;
+    [uniqSpeed, ~, binIdx] = unique(speedBins);
+    uniqVoltage = nan(size(uniqSpeed));
+    groupSizes = accumarray(binIdx, 1);
+
+    for g = 1:numel(uniqSpeed)
+        members = (binIdx == g);
+        vGroup = lut_voltage(members);
+
+        if groupSizes(g) == 1
+            uniqVoltage(g) = vGroup;
+            continue
+        end
+
+        isBoundary = (g == 1) || (g == numel(uniqSpeed));
+        if isBoundary
+            if g == 1
+                neighborTarget = mean(lut_voltage(binIdx == g + 1));
+            else
+                neighborTarget = mean(lut_voltage(binIdx == g - 1));
+            end
+            [~, pickIdx] = min(abs(vGroup - neighborTarget));
+            uniqVoltage(g) = vGroup(pickIdx);
+        else
+            uniqVoltage(g) = mean(vGroup);
+        end
+    end
+
+    lut_speed = uniqSpeed;
+    lut_voltage = uniqVoltage;
+
+    % figure;
+    % plot(lut_speed, lut_voltage, 'o-');
+    % xlabel('Load speed');
+    % ylabel('Input voltage');
+    % title('Steady-state voltage-speed LUT');
+
+    % Save LUT
+    lut_speed = lut_speed(:);
+    lut_voltage = lut_voltage(:);
+    if ~isfile(lutFile)
+        save(lutFile, "lut_speed", "lut_voltage");
+    else
+        old = load(lutFile, "lut_speed", "lut_voltage");
+        if isfield(old, "lut_speed")
+            lut_speed = [old.lut_speed(:); lut_speed];
+        end
+        if isfield(old, "lut_voltage")
+            lut_voltage = [old.lut_voltage(:); lut_voltage];
+        end
+        save(lutFile, "lut_speed", "lut_voltage");
+    end
+
+    %% Clean up for next iteration
+    clear out tv v tOp op v_ss lut_speed lut_voltage uniqSpeed uniqVoltage;
+    delete(fullfile(outDir, "v_tmp_1.mat"));
+    delete(fullfile(outDir, "op_tmp_1.mat"));
+
+    fprintf("Finished processing k = %d voltage range [%.2f, %.2f].\n", k, voltage_range(k), voltage_range(k + 1));
+end
+
+%% Post-process the LUT to ensure global monotonicity
+load(lutFile, "lut_speed", "lut_voltage");
+
+% Remove the duplicate speeds at the boundary between voltage ranges
+idx = find(lut_speed == min(lut_speed), 1, "last");
+lut_speed = lut_speed(idx:end);
+lut_voltage = lut_voltage(idx:end);
+idx = find(lut_speed == max(lut_speed), 1, "first");
+lut_speed = lut_speed(1:idx);
+lut_voltage = lut_voltage(1:idx);
+
+% Remove the duplicate speeds at the interior voltage range
+[uniqSpeed, ~, binIdx] = unique(lut_speed);
+uniqVoltage = accumarray(binIdx, lut_voltage, [], @mean);
+lut_speed = uniqSpeed;
+lut_voltage = uniqVoltage;
+
+% Save the final LUT
+save(lutFile, "lut_speed", "lut_voltage");

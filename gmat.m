@@ -1,102 +1,65 @@
 function G = gmat(A, B, N1, N2, Nu)
-%GMAT  Build the GPC dynamic matrix G from a CARIMA/ARIMA model.
+%GMAT  Build the MIMO GPC dynamic matrix G for a 3x3 CARIMA/ARIMA model.
 %
 %   G = gmat(A, B, N1, N2, Nu)
 %
-%   Model (noise ignored):
-%       A(z^-1) * Δy(k) = z^-1 * B(z^-1) * Δu(k)
+%   Model (noise ignored) for each path (i,j):
+%       A{i,j}(z^-1) * Δy_i(k) = z^-1 * B{i,j}(z^-1) * Δu_j(k)
 %
 %   Inputs:
-%     A  - row vector [1 a1 ... ana]  (denominator polynomial in z^-1)
-%     B  - row vector [b0 b1 ... bnb] (numerator polynomial in z^-1)
+%     A  - 3x3x(na+1) numeric array with A(:,:,1) == 1
+%     B  - 3x3x(nb+1) numeric array
 %     N1 - minimum prediction step (>=1)
 %     N2 - maximum prediction step (> N1)
 %     Nu - control horizon (>=1, <= N2-N1+1 recommended)
 %
 %   Output:
-%     G  - (N2-N1+1)-by-Nu dynamic matrix
+%     G  - block dynamic matrix of size (3*(N2-N1+1)) x (3*Nu)
 %
 %   Notes:
-%     - Assumes one-sample input delay (z^-1) as in your equation:
-%         ... = B(z^-1) Δu(k-1)
-%       If your delay differs, shift B accordingly before calling.
+%     - Assumes one-sample input delay (z^-1) for each path.
+%     - If your delays differ per path, shift each B(:,:,k) before calling.
 %
-%   Example:
-%     A = [1 1.0584 -0.1774];
-%     B = [-1.3157e-6 -1.8767e-6];
-%     G = gmat(A, B, 1, 50, 10);
+%   This implementation matches the internal gmat_mimo logic used by gpc_step.m.
 
+    G = gmat_mimo(A, B, N1, N2, Nu);
+end
+
+function G = gmat_mimo(A, B, N1, N2, Nu)
     % ---- checks ----
-    if nargin ~= 5
-        error('gmat requires exactly 5 inputs: A, B, N1, N2, Nu.');
-    end
-    if ~isvector(A) || ~isvector(B)
-        error('A and B must be row/column vectors.');
-    end
-    A = A(:).';  % ensure row
-    B = B(:).';  % ensure row
-    if isempty(A) || A(1) ~= 1
-        error('A must be non-empty with A(1) == 1.');
-    end
-    validateattributes(N1, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'N1');
-    validateattributes(N2, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'N2');
-    validateattributes(Nu, {'numeric'}, {'scalar', 'integer', 'finite', '>=', 1}, ...
-        mfilename, 'Nu');
-    if N2 <= N1
-        error('Require N2 > N1.');
-    end
+    assert(nargin == 5);
 
-    na = numel(A) - 1;  % order of A
-    nb = numel(B) - 1;  % order of B
+    assert(isnumeric(A) && isnumeric(B) && ...
+           ndims(A) == 3 && ndims(B) == 3);
 
-    % ---- step 1: generate coefficients g(1..N2) by simulating unit Δu(k)=1 ----
-    % We simulate the recursion:
-    %   Δy(t) = -sum_{i=1..na} A(i+1)*Δy(t-i) + sum_{j=0..nb} B(j+1)*Δu(t-1-j)
-    %   y(t)  = y(t-1) + Δy(t)
-    %
-    % with initial conditions y(0)=0, Δy(t)=0 for t<=0, and Δu(0)=1, else 0.
-    %
-    % Result: g(t) := y(t) for t=1..N2
+    assert(size(A,1) == 3 && size(A,2) == 3 && ...
+           size(B,1) == 3 && size(B,2) == 3);
 
-    dy = zeros(1, N2 + na + 2);  % dy(idx) stores Δy at time (idx-1)
-    y  = zeros(1, N2 + 2);       % y(idx)  stores y at time (idx-1)
+    assert(isequal(A(:,:,1), eye(3)));
 
-    % helper: Δu(t) = 1 if t==0 else 0
-    du_at = @(t) double(t == 0);
+    assert(isscalar(N1) && isnumeric(N1) && isfinite(N1) && ...
+           N1 >= 1 && N1 == floor(N1));
 
-    for t = 1:N2
-        acc = 0;
-    
-        % A-part: past Δy terms
-        for i = 1:na
-            if (t - i) + 1 >= 1
-                acc = acc - A(i+1) * dy((t - i) + 1);
-            end
-        end
-    
-        % B-part: delayed Δu terms
-        for j = 0:nb
-            acc = acc + B(j+1) * du_at(t - 1 - j);
-        end
-    
-        dy(t + 1) = acc;              % Δy(t)
-        y(t + 1)  = y(t) + dy(t + 1); % y(t)
-    end
+    assert(isscalar(N2) && isnumeric(N2) && isfinite(N2) && ...
+           N2 >= 1 && N2 == floor(N2));
 
-    g = y(2:N2+1); % g(1)=y(1), ..., g(N2)=y(N2)
+    assert(isscalar(Nu) && isnumeric(Nu) && isfinite(Nu) && ...
+           Nu >= 1 && Nu == floor(Nu));
 
-    % ---- step 2: fill G using Toeplitz shifts of g ----
+    assert(N2 > N1);
+
     rows = N2 - N1 + 1;
-    G = zeros(rows, Nu);
+    G = zeros(3 * rows, 3 * Nu);
 
-    for r = 1:rows
-        for c = 1:Nu
-            idx = N1 + r - c; % coefficient index into g
-            if idx >= 1
-                G(r, c) = g(idx);
-            end
+    % Build each SISO block G_ij and place into the MIMO G matrix.
+    for i = 1:3
+        for j = 1:3
+            Aij = squeeze(A(i, j, :)).';
+            Bij = squeeze(B(i, j, :)).';
+            Gij = gmat_single_phase(Aij, Bij, N1, N2, Nu);
+            r0 = (i - 1) * rows + 1;
+            c0 = (j - 1) * Nu + 1;
+            G(r0:r0+rows-1, c0:c0+Nu-1) = Gij;
         end
     end
 end
