@@ -1,14 +1,14 @@
 function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
                     C, D, wy, umin, umax, dumin, dumax, u_init, du_init, ...
-                    L, use_quadprog, mode, u_applied, solve_when_inactive)
-%MPC_QP_CORE Core constrained MPC implementation with mode-aware estimation.
+                    L, use_quadprog, is_active, u_applied, solve_when_inactive)
+%MPC_QP_CORE Core constrained MPC implementation with activity-aware estimation.
+%   is_active is a logical scalar that is true when this MPC controller is
+%   selected and false otherwise.
 
-    persistent xhat y_prev u_applied_prev du_prev_assumed init_flag last_mode
+    persistent xhat y_prev u_applied_prev du_prev_assumed init_flag was_active_prev
 
-    modes = controller_modes();
-
-    if nargin < 22 || isempty(mode)
-        mode = modes.MPC_ACTIVE;
+    if nargin < 22 || isempty(is_active)
+        is_active = true;
     end
     has_u_applied = (nargin >= 23) && ~isempty(u_applied);
     if nargin < 24 || isempty(solve_when_inactive)
@@ -45,10 +45,10 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
         u_applied_prev = u_init;
         du_prev_assumed = du_init;
         init_flag = true;
-        last_mode = mode;
+        was_active_prev = is_active;
         if nargout > 1
-            info = build_info_struct(mode, false, has_u_applied, u_init, zeros(nu, 1), ...
-                                     zeros(nu, 1), xhat, C * xhat, modes);
+            info = build_info_struct(is_active, false, has_u_applied, u_init, zeros(nu, 1), ...
+                                     zeros(nu, 1), xhat, C * xhat);
         end
         return;
     end
@@ -66,7 +66,7 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
         error('u_applied must have one entry per input.');
     end
 
-    mode = validate_mode(mode, modes);
+    is_active = normalize_is_active(is_active);
 
     if isscalar(alpha)
         alpha_vec = repmat(alpha, 3, 1);
@@ -88,12 +88,12 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
     if isempty(du_prev_assumed)
         du_prev_assumed = du_init;
     end
-    if isempty(last_mode)
-        last_mode = modes.MPC_ACTIVE;
+    if isempty(was_active_prev)
+        was_active_prev = true;
     end
 
     if ~has_u_applied
-        u_applied = u_applied_prev + assumed_increment(last_mode, du_prev_assumed, modes, nu);
+        u_applied = u_applied_prev + assumed_increment(was_active_prev, du_prev_assumed, nu);
     end
 
     if init_flag
@@ -130,7 +130,7 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
     H = GammaY' * Qy * GammaY + Ru;
     f = -GammaY' * Qy * (R - F);
 
-    qp_solved = (mode == modes.MPC_ACTIVE) || logical(solve_when_inactive);
+    qp_solved = is_active || logical(solve_when_inactive);
     if qp_solved
         [lb, ub, Aineq, bineq] = build_constraints(dumin, dumax, umin, umax, Nu, u_applied, nu);
         dU = solve_qp(H, f, lb, ub, Aineq, bineq, u_applied, umin, umax, use_quadprog, nu);
@@ -139,7 +139,7 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
         du_candidate = zeros(nu, 1);
     end
 
-    if mode == modes.MPC_ACTIVE
+    if is_active
         du = du_candidate;
     end
 
@@ -147,11 +147,11 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
     u_applied_prev = u_applied;
     du_prev_assumed = du;
     init_flag = false;
-    last_mode = mode;
+    was_active_prev = is_active;
 
     if nargout > 1
-        info = build_info_struct(mode, qp_solved, has_u_applied, u_applied, du_applied, ...
-                                 du_candidate, xhat, dyhat, modes);
+        info = build_info_struct(is_active, qp_solved, has_u_applied, u_applied, du_applied, ...
+                                 du_candidate, xhat, dyhat);
     end
 end
 
@@ -161,16 +161,21 @@ function validate_horizons(N1, N2, Nu)
     validateattributes(Nu, {'numeric'}, {'scalar', 'integer', '>=', 1}, mfilename, 'Nu');
 end
 
-function mode = validate_mode(mode, modes)
-    validateattributes(mode, {'numeric'}, {'scalar', 'integer'}, mfilename, 'mode');
-    valid_modes = [modes.MPC_ACTIVE, modes.MANUAL_ACTIVE, modes.OTHER_CONTROLLER_ACTIVE];
-    if ~any(mode == valid_modes)
-        error('mode must be 1 (MPC_ACTIVE), 2 (MANUAL_ACTIVE), or 3 (OTHER_CONTROLLER_ACTIVE).');
+function is_active = normalize_is_active(is_active)
+    if islogical(is_active) && isscalar(is_active)
+        return;
     end
+
+    if isnumeric(is_active) && isscalar(is_active) && isfinite(is_active) && any(is_active == [0, 1])
+        is_active = logical(is_active);
+        return;
+    end
+
+    error('is_active must be a logical scalar or numeric 0/1 scalar.');
 end
 
-function du_assumed = assumed_increment(mode, du_prev_assumed, modes, nu)
-    if mode == modes.MPC_ACTIVE
+function du_assumed = assumed_increment(was_active_prev, du_prev_assumed, nu)
+    if was_active_prev
         du_assumed = du_prev_assumed(:);
     else
         du_assumed = zeros(nu, 1);
@@ -293,11 +298,10 @@ function dU = solve_qp(H, f, lb, ub, Aineq, bineq, u_base, umin, umax, use_quadp
     end
 end
 
-function info = build_info_struct(mode, qp_solved, has_u_applied, u_applied, du_applied, ...
-                                  du_candidate, xhat, dyhat, modes)
+function info = build_info_struct(is_active, qp_solved, has_u_applied, u_applied, du_applied, ...
+                                  du_candidate, xhat, dyhat)
     info = struct( ...
-        'mode', mode, ...
-        'mode_name', mode_name(mode, modes), ...
+        'is_active', logical(is_active), ...
         'qp_solved', logical(qp_solved), ...
         'using_u_applied_feedback', logical(has_u_applied), ...
         'u_applied', u_applied(:), ...
@@ -306,21 +310,4 @@ function info = build_info_struct(mode, qp_solved, has_u_applied, u_applied, du_
         'u_mpc', u_applied(:) + du_candidate(:), ...
         'xhat', xhat(:), ...
         'dyhat', dyhat(:));
-end
-
-function name = mode_name(mode, modes)
-    if mode == modes.MPC_ACTIVE
-        name = 'MPC_ACTIVE';
-    elseif mode == modes.MANUAL_ACTIVE
-        name = 'MANUAL_ACTIVE';
-    else
-        name = 'OTHER_CONTROLLER_ACTIVE';
-    end
-end
-
-function modes = controller_modes()
-    modes = struct( ...
-        'MPC_ACTIVE', 1, ...
-        'MANUAL_ACTIVE', 2, ...
-        'OTHER_CONTROLLER_ACTIVE', 3);
 end

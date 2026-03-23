@@ -1,8 +1,8 @@
-function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C, mode, u_applied, solve_when_inactive)
-%GPC_STEP  One-step 3x3 GPC move for a CARIMA model with mode-aware tracking.
+function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C, is_active, u_applied, solve_when_inactive)
+%GPC_STEP  One-step 3x3 GPC move for a CARIMA model with activity-aware tracking.
 %   du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C)
-%   du = gpc_step(..., mode, u_applied)
-%   du = gpc_step(..., mode, u_applied, solve_when_inactive)
+%   du = gpc_step(..., is_active, u_applied)
+%   du = gpc_step(..., is_active, u_applied, solve_when_inactive)
 %
 %   This implementation keeps the CARIMA predictor synchronized even when
 %   GPC is inactive. The internal histories are always updated from the
@@ -11,7 +11,7 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C, mode, u_app
 %   Inputs:
 %     y, r      - 3x1 output and reference vectors
 %     A, B, C   - CARIMA polynomial matrices
-%     mode      - 1: GPC active, 2: manual active, 3: other controller active
+%     is_active - logical scalar, true when this GPC controller is selected
 %     u_applied - actual absolute actuator input currently applied to plant
 %     solve_when_inactive - if true, still compute GPC candidate while inactive
 %
@@ -21,16 +21,14 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C, mode, u_app
 %     - If u_applied is omitted, the function falls back to legacy behavior:
 %       when GPC was previously active, the last GPC move is assumed applied;
 %       otherwise zero increment is assumed.
-%     - The returned du is only nonzero when mode == GPC_ACTIVE.
+%     - The returned du is only nonzero when is_active is true.
 
     persistent K y_prev dy_hist du_hist e_hist ...
                u_prev_applied du_prev_assumed ...
                last_A last_B last_C last_N1 last_N2 last_Nu last_lam init_flag
 
-    modes = gpc_controller_modes();
-
-    if nargin < 12 || isempty(mode)
-        mode = modes.GPC_ACTIVE;
+    if nargin < 12 || isempty(is_active)
+        is_active = true;
     end
     has_u_applied = (nargin >= 13) && ~isempty(u_applied);
     if nargin < 14 || isempty(solve_when_inactive)
@@ -67,7 +65,7 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C, mode, u_app
         assert(numel(u_applied) == 3, 'u_applied must be a 3x1 vector.');
     end
 
-    mode = validate_gpc_mode(mode, modes);
+    is_active = normalize_is_active(is_active);
 
     if isscalar(alpha)
         alpha_vec = repmat(alpha, 3, 1);
@@ -149,7 +147,7 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C, mode, u_app
     end
 
     if ~has_u_applied
-        if mode == modes.GPC_ACTIVE
+        if is_active
             u_applied = u_prev_applied + du_prev_assumed;
         else
             u_applied = u_prev_applied;
@@ -214,7 +212,7 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C, mode, u_app
     end
 
     % ----- Optional control optimization -----
-    solve_gpc = (mode == modes.GPC_ACTIVE) || logical(solve_when_inactive);
+    solve_gpc = is_active || logical(solve_when_inactive);
     du_candidate = zeros(3, 1);
     if solve_gpc
         dU_star = K * (R - F);
@@ -225,7 +223,7 @@ function du = gpc_step(y, r, A, B, N1, N2, Nu, alpha, lam, reset, C, mode, u_app
 
     % ----- Output selection -----
     du = zeros(3, 1);
-    if mode == modes.GPC_ACTIVE
+    if is_active
         du = du_candidate;
     end
 
@@ -287,17 +285,15 @@ function dyhat = predict_dy1_carima(A, B, C, dy_hist, du_hist, e_hist)
 end
 
 
-function mode = validate_gpc_mode(mode, modes)
-    assert(isnumeric(mode) && isscalar(mode) && isfinite(mode) && mode == floor(mode), ...
-        'mode must be an integer scalar.');
-    assert(any(mode == [modes.GPC_ACTIVE, modes.MANUAL_ACTIVE, modes.OTHER_CONTROLLER_ACTIVE]), ...
-        'mode must be 1 (GPC_ACTIVE), 2 (MANUAL_ACTIVE), or 3 (OTHER_CONTROLLER_ACTIVE).');
-end
+function is_active = normalize_is_active(is_active)
+    if islogical(is_active) && isscalar(is_active)
+        return;
+    end
 
+    if isnumeric(is_active) && isscalar(is_active) && isfinite(is_active) && any(is_active == [0, 1])
+        is_active = logical(is_active);
+        return;
+    end
 
-function modes = gpc_controller_modes()
-    modes = struct( ...
-        'GPC_ACTIVE', 1, ...
-        'MANUAL_ACTIVE', 2, ...
-        'OTHER_CONTROLLER_ACTIVE', 3);
+    assert(false, 'is_active must be a logical scalar or numeric 0/1 scalar.');
 end
