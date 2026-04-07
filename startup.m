@@ -8,6 +8,7 @@ folders = {
     'Identification'
     'models'
     'ModelTests'
+    'utils'
 };
 
 for i = 1:numel(folders)
