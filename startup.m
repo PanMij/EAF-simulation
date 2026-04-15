@@ -9,6 +9,7 @@ folders = {
     'models'
     'ModelTests'
     'utils'
+    'sims'
 };
 
 for i = 1:numel(folders)
