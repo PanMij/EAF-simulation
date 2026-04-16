@@ -1,18 +1,73 @@
-%% Plot key signals of variable-impedance control system
+%% Run ctrlSys_vi and plot key signals of variable-impedance control system
 clear; clc; close all;
 
-load("data/vi_log.mat");
+model = 'ctrlSys_vi';
+mpcModel = 'MPC_QP';
+matFile = 'MPC_workspace_nf.mat';
+Tstop = 600;
 
-if ~exist('out', 'var')
-    error('工作区中不存在变量 out，请先运行仿真。');
+tMinPlot = 1.0;
+maxPlotPts = 10000;
+
+%% Load model
+load_system(model);
+set_param(model, 'SignalLogging', 'on');
+set_param(model, 'StopTime', num2str(Tstop));
+
+%% Build external inputs
+% Inport1: Z_init, constant vector [0.055 0.055 0.055]
+t_z = [0; Tstop];
+u_z = [0.055 0.055 0.055;
+       0.055 0.055 0.055];
+Z_init_ts = timeseries(u_z, t_z, 'Name', 'Z_init');
+Z_init_ts = setinterpmethod(Z_init_ts, 'zoh');
+
+% Inport2: l_slag
+% t < 20           : [0.2   0.2   0.2]
+% 20 <= t < 120    : [0.165 0.165 0.165]
+% t >= 120         : ramp to [0.21 0.21 0.21] at t = 600
+dtStep = 1e-6;
+t_s = [0;
+       20;
+       20 + dtStep;
+       120;
+       Tstop];
+
+u_s = [0.2   0.2   0.2;
+       0.2   0.2   0.2;
+       0.165 0.165 0.165;
+       0.165 0.165 0.165;
+       0.21  0.21  0.21];
+
+l_slag_ts = timeseries(u_s, t_s, 'Name', 'l_slag');
+l_slag_ts = setinterpmethod(l_slag_ts, 'linear');
+
+% Root Inports dataset
+ds = Simulink.SimulationData.Dataset;
+ds = addElement(ds, Z_init_ts, 'Z_init');
+ds = addElement(ds, l_slag_ts, 'l_slag');
+
+%% Run simulation
+simIn = Simulink.SimulationInput(model);
+simIn = simIn.setModelParameter('SimulationMode', 'rapid-accelerator');
+simIn = simIn.setVariable('R_rms', 0);
+simIn = simIn.setVariable('dist_power', 0);
+simIn = simIn.setVariable('CtrlChoice', "MPC_QP", 'Workspace', model);
+simIn = simIn.setExternalInput(ds);
+
+% Set MPC parameters
+mpcVars = load(matFile);
+mpcVarNames = fieldnames(mpcVars);
+for i = 1:numel(mpcVarNames)
+    varName = mpcVarNames{i};
+    simIn = simIn.setVariable(varName, mpcVars.(varName), 'Workspace', mpcModel);
 end
 
-logs = out.logsout;
-if isempty(logs) || logs.numElements == 0
-    error('out.logsout 为空，未找到 logged signals。');
-end
+out = sim(simIn);
 
 %% Get logged signals
+logs = out.logsout;
+
 [bRate,  t_bRate]  = getLoggedData(logs, {'bRate'});
 [hy_out, t_hy]     = getLoggedData(logs, {'hy_out'});
 [l_slag, t_slag]   = getLoggedData(logs, {'l_slag'});
@@ -31,9 +86,6 @@ Zadjk  = reshapeSignal(Zadjk,  t_Zadjk);
 Rreal  = reshapeSignal(Rreal,  t_Rreal);
 
 %% Drop data from 0 s to 1 s
-tMinPlot = 1.0;
-maxPlotPts = 10000;
-
 idx_bRate  = t_bRate  > tMinPlot;
 idx_hy     = t_hy     > tMinPlot;
 idx_slag   = t_slag   > tMinPlot;
@@ -72,19 +124,14 @@ Rreal   = Rreal(idx_Rreal, :);
 [t_Zadjk_plot,  Zadjk_plot]  = downsampleForPlot(t_Zadjk,  Zadjk,  maxPlotPts);
 [t_Rreal_plot,  Rreal_plot]  = downsampleForPlot(t_Rreal,  Rreal,  maxPlotPts);
 
-% Basic checks
-nPhase = size(Rreal, 2);
-if nPhase < 3
-    error('信号列数不足，当前仅检测到 %d 列，相数应为 3。', nPhase);
-end
 
+%% Plot
 phaseName = {'A相', 'B相', 'C相'};
 phaseColor = [ ...
     0.0000    0.4470    0.7410;
     0.8500    0.3250    0.0980;
     0.9290    0.6940    0.1250];
 
-%% Plot
 fig = figure( ...
     'Name', 'Variable-impedance control results', ...
     'Color', 'w', ...
@@ -114,7 +161,7 @@ ax2 = nexttile;
 hold(ax2, 'on');
 h = gobjects(6, 1);
 for k = 1:3
-    h(2*k-1) = plot(t_hy_plot, hy_out_plot(:, k), '-',  'LineWidth', 1.5, 'Color', phaseColor(k, :));
+    h(2*k-1) = plot(t_hy_plot,   hy_out_plot(:, k),  '-',  'LineWidth', 1.5, 'Color', phaseColor(k, :));
     h(2*k)   = plot(t_slag_plot, l_slag_plot(:, k), '--', 'LineWidth', 1.5, 'Color', phaseColor(k, :));
 end
 styleAxes(ax2);

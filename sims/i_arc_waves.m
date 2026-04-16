@@ -171,7 +171,6 @@ xlim(ax4, [0 fMaxPlot]);
 sgtitle([phaseText, ' 电弧电流波形与频谱对比'], ...
     'Color', 'k', 'FontSize', 14);
 
-exportgraphics(fig, 'i_arc_buried_arc_waveform_spectrum.png', 'Resolution', 300);
 
 %% Local function
 function [f, A] = calcSpectrum(x, fs)
