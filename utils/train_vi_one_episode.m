@@ -1,16 +1,15 @@
-function train_vi_one_episode(max_episode)
+function train_vi_one_episode(max_episode, useParallel, workers)
     for k = 1:max_episode
-        rl_vi_one_episode_resume();
+        rl_vi_one_episode_resume(useParallel, workers);
     end
 end
 
 %% rl_vi_one_episode_resume
-function rl_vi_one_episode_resume()
+function rl_vi_one_episode_resume(useParallel, workers)
     mdl = "ctrlSys_rl_env_test";
     agentBlk = "ctrlSys_rl_env_test/Subsystem/RL Agent";
     TsRL = 5.0;
     saveFile = "data/agent_sac_variable_impedance.mat";
-    workers = 2;
 
     cleanupObj = onCleanup(@() localCleanup(mdl));
 
@@ -50,7 +49,7 @@ function rl_vi_one_episode_resume()
         agentOpts.SampleTime = TsRL;
         agentOpts.DiscountFactor = 0.99;
         agentOpts.MiniBatchSize = 64;
-        agentOpts.ExperienceBufferLength = 10000;
+        agentOpts.ExperienceBufferLength = 50000;
 
         agentOpts.ActorOptimizerOptions.LearnRate = 1e-4;
         agentOpts.CriticOptimizerOptions(1).LearnRate = 1e-3;
@@ -71,12 +70,12 @@ function rl_vi_one_episode_resume()
         ScoreAveragingWindowLength = 5, ...
         Verbose = true, ...
         Plots = "none", ...
-        UseParallel = true, ...
+        UseParallel = useParallel, ...
         SimulationStorageType = "none");
 
     %% Train: always feed old trainingStats back if it exists
 
-    if isempty(gcp('nocreate'))
+    if useParallel && isempty(gcp('nocreate'))
         parpool(workers);
     end
 
@@ -88,7 +87,9 @@ function rl_vi_one_episode_resume()
         trainingStats = train(agent, env, trainOpts);
     end
 
-    delete(gcp('nocreate'));
+    if useParallel
+        delete(gcp('nocreate'));
+    end
 
     %% Save updated agent and updated trainingStats
     save(saveFile, "agent", "trainingStats", "-v7.3");

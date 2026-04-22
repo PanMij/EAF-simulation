@@ -1,29 +1,32 @@
 clc;clear;
 
 % Load agent
-S1 = load("data/agent_sac_variable_impedance_pc1.mat","agent");
-S2 = load("data/agent_sac_variable_impedance_pc2.mat","agent");
+S1 = load("data/agent_sac_variable_impedance_pc1.mat","agent","trainingStats");
+S2 = load("data/agent_sac_variable_impedance_pc2.mat","agent","trainingStats");
 
 buf1 = S1.agent.ExperienceBuffer;
 buf2 = S2.agent.ExperienceBuffer;
 
-bufMerged = mergeReplayMemory(buf1, buf2, 10000);
+bufMerged = mergeReplayMemory(buf1, buf2, 20000);
 
-agent = S1.agent;
+agent = S2.agent;
+trainingStats = S2.trainingStats;
 
 % Put replay buffer into the agent
 agent.ExperienceBuffer = bufMerged;
 
-% Move actor to GPU
-actor = getActor(agent);
-actor.UseDevice = "gpu";
-agent = setActor(agent, actor);
+if canUseGPU
+    % Move actor to GPU
+    actor = getActor(agent);
+    actor.UseDevice = "gpu";
+    agent = setActor(agent, actor);
 
-% Move both critics to GPU
-critics = getCritic(agent);
-for k = 1:numel(critics)
-    critics(k).UseDevice = "gpu";
-    agent = setCritic(agent, critics(k));
+    % Move both critics to GPU
+    critics = getCritic(agent);
+    for k = 1:numel(critics)
+        critics(k).UseDevice = "gpu";
+        agent = setCritic(agent, critics(k));
+    end
 end
 
 % Offline-training options
@@ -34,7 +37,9 @@ tfdOpts = rlTrainingFromDataOptions( ...
     Verbose = true);
 
 % Train from the replay buffer
+tic;
 tfdStats = trainFromData(agent, tfdOpts);
+toc;
 
 % % Save updated agent
-% save("/agent_sac_variable_impedance.mat","agent","tfdStats","-v7.3");
+% save("/agent_sac_variable_impedance.mat","agent","trainingStats","-v7.3");
