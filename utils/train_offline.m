@@ -7,7 +7,7 @@ S2 = load("data/agent_sac_variable_impedance_pc2.mat","agent","trainingStats");
 buf1 = S1.agent.ExperienceBuffer;
 buf2 = S2.agent.ExperienceBuffer;
 
-bufMerged = mergeReplayMemory(buf1, buf2, 20000);
+bufMerged = mergeReplayMemory(buf1, buf2, 50000);
 
 agent = S2.agent;
 trainingStats = S2.trainingStats;
@@ -31,8 +31,8 @@ end
 
 % Offline-training options
 tfdOpts = rlTrainingFromDataOptions( ...
-    MaxEpochs = 20, ...
-    NumStepsPerEpoch = 1000, ...
+    MaxEpochs = 10, ...
+    NumStepsPerEpoch = 800, ...
     Plots = "none", ...
     Verbose = true);
 
