@@ -1,18 +1,32 @@
-function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
+function du = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
                     C, D, wy, umin, umax, dumin, dumax, u_init, du_init, ...
-                    L, use_quadprog, is_active, u_applied, solve_when_inactive)
+                    Qkf, Rkf, P0, use_quadprog, is_active, u_applied, solve_when_inactive, ...
+                    use_steady_state_kf, L)
 %MPC_QP_CORE Core constrained MPC implementation with activity-aware estimation.
-%   is_active is a logical scalar that is true when this MPC controller is
-%   selected and false otherwise.
+%   The estimator can use either a standard recursive Kalman filter or a
+%   fixed steady-state Kalman gain supplied by the caller.
+%
+%   Qkf : process noise covariance for the incremental state model
+%   Rkf : measurement noise covariance for dy_meas
+%   P0  : initial state estimation covariance
+%   use_steady_state_kf : true to use fixed Kalman gain L
+%   L   : steady-state Kalman gain with size nx-by-ny
 
-    persistent xhat y_prev u_applied_prev du_prev_assumed init_flag was_active_prev
+    persistent xhat P y_prev y_filt u_applied_prev ...
+        du_prev_assumed init_flag was_active_prev
 
-    if nargin < 22 || isempty(is_active)
+    if nargin < 24 || isempty(is_active)
         is_active = true;
     end
-    has_u_applied = (nargin >= 23) && ~isempty(u_applied);
-    if nargin < 24 || isempty(solve_when_inactive)
+    has_u_applied = (nargin >= 25) && ~isempty(u_applied);
+    if nargin < 26 || isempty(solve_when_inactive)
         solve_when_inactive = false;
+    end
+    if nargin < 27 || isempty(use_steady_state_kf)
+        use_steady_state_kf = false;
+    end
+    if nargin < 28
+        L = [];
     end
 
     y = y(:);
@@ -29,6 +43,23 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
     nu = size(B, 2);
     ny = size(C, 1);
 
+    use_steady_state_kf = normalize_logical_scalar(use_steady_state_kf, 'use_steady_state_kf');
+
+    if use_steady_state_kf
+        beta = 0; % No filtering when using steady-state KF
+        L = validate_steady_state_gain(L, nx, ny);
+        if isempty(P0)
+            P0 = zeros(nx);
+        else
+            P0 = expand_covariance(P0, nx, 'P0');
+        end
+    else
+        beta = 0.5; % Smoothing factor for y_filt
+        Qkf = expand_covariance(Qkf, nx, 'Qkf');
+        Rkf = expand_covariance(Rkf, ny, 'Rkf');
+        P0  = expand_covariance(P0,  nx, 'P0');
+    end
+
     du = zeros(nu, 1);
 
     if has_u_applied
@@ -39,17 +70,21 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
         init_flag = true;
     end
 
+    is_active = normalize_is_active(is_active);
+
     if reset
         xhat = zeros(nx, 1);
+        P = P0;
+
         y_prev = y;
+        y_filt = y;
+
         u_applied_prev = u_init;
         du_prev_assumed = du_init;
+
         init_flag = true;
         was_active_prev = is_active;
-        if nargout > 1
-            info = build_info_struct(is_active, false, has_u_applied, u_init, zeros(nu, 1), ...
-                                     zeros(nu, 1), xhat, C * xhat);
-        end
+
         return;
     end
 
@@ -66,8 +101,6 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
         error('u_applied must have one entry per input.');
     end
 
-    is_active = normalize_is_active(is_active);
-
     if isscalar(alpha)
         alpha_vec = repmat(alpha, 3, 1);
     elseif numel(alpha) == 3
@@ -79,8 +112,14 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
     if isempty(xhat)
         xhat = zeros(nx, 1);
     end
+    if isempty(P)
+        P = P0;
+    end
     if isempty(y_prev)
         y_prev = y;
+    end
+    if isempty(y_filt)
+        y_filt = y;
     end
     if isempty(u_applied_prev)
         u_applied_prev = u_init;
@@ -98,39 +137,89 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
 
     if init_flag
         xhat = zeros(nx, 1);
+        P = P0;
         y_prev = y;
+        y_filt = y;
         u_applied_prev = u_applied;
-    end
-
-    if all(L(:) == 0)
-        L_use = pinv(C);
-    else
-        L_use = L;
     end
 
     validate_horizons(N1, N2, Nu);
 
-    dy_meas = y - y_prev;
+    % -------------------------------------------------------------
+    % 1. Filter measured output
+    % -------------------------------------------------------------
+    y_filt = beta * y_filt + (1 - beta) * y;
+    y_used = y_filt;
+
+    % -------------------------------------------------------------
+    % 2. Build measured output increment
+    % -------------------------------------------------------------
+    dy_meas = y_used - y_prev;
+
     if init_flag
         du_applied = zeros(nu, 1);
+
+        x_pred = xhat;
+        P_pred = P;
     else
         du_applied = u_applied - u_applied_prev;
-        xhat = A * xhat + B * du_applied;
+
+        % ---------------------------------------------------------
+        % 3. Kalman time update
+        % ---------------------------------------------------------
+        x_pred = A * xhat + B * du_applied;
+        if use_steady_state_kf
+            P_pred = P;
+        else
+            P_pred = A * P * A' + Qkf;
+            P_pred = (P_pred + P_pred') / 2;
+        end
     end
 
-    dyhat = C * xhat + D * du_applied;
-    xhat = xhat + L_use * (dy_meas - dyhat);
+    % -------------------------------------------------------------
+    % 4. Kalman measurement update
+    %
+    % Measurement equation:
+    %   dy_meas = C*x_pred + D*du_applied + measurement noise
+    % -------------------------------------------------------------
+    dyhat = C * x_pred + D * du_applied;
+    innovation = dy_meas - dyhat;
 
+    if use_steady_state_kf
+        Kkf = L;
+    else
+        S = C * P_pred * C' + Rkf;
+        S = (S + S') / 2 + 1e-12 * eye(ny);
+
+        Kkf = (P_pred * C') / S;
+    end
+    xhat = x_pred + Kkf * innovation;
+
+    if use_steady_state_kf
+        P = P_pred;
+    else
+        % Joseph covariance update, numerically safer than P=(I-KC)P
+        I = eye(nx);
+        P = (I - Kkf * C) * P_pred * (I - Kkf * C)' + Kkf * Rkf * Kkf';
+        P = (P + P') / 2;
+    end
+
+    % -------------------------------------------------------------
+    % 5. MPC prediction and QP
+    % -------------------------------------------------------------
     [PhiY, GammaY] = build_prediction_mats(A, B, C, D, N1, N2, Nu);
-    F = PhiY * xhat + repmat(y, N2 - N1 + 1, 1);
-    R = build_reference(y, r, N1, N2, alpha_vec);
+
+    F = PhiY * xhat + repmat(y_used, N2 - N1 + 1, 1);
+    R = build_reference(y_used, r, N1, N2, alpha_vec);
 
     Qy = build_output_weight(wy, N2 - N1 + 1);
     Ru = build_move_weight(lam, Nu, nu);
+
     H = GammaY' * Qy * GammaY + Ru;
     f = -GammaY' * Qy * (R - F);
 
     qp_solved = is_active || logical(solve_when_inactive);
+
     if qp_solved
         [lb, ub, Aineq, bineq] = build_constraints(dumin, dumax, umin, umax, Nu, u_applied, nu);
         dU = solve_qp(H, f, lb, ub, Aineq, bineq, u_applied, umin, umax, use_quadprog, nu);
@@ -143,15 +232,54 @@ function [du, info] = MPC_QP_core(y, r, A, B, N1, N2, Nu, alpha, lam, reset, ...
         du = du_candidate;
     end
 
-    y_prev = y;
+    % -------------------------------------------------------------
+    % 6. Update persistent variables
+    % -------------------------------------------------------------
+    y_prev = y_used;
     u_applied_prev = u_applied;
     du_prev_assumed = du;
     init_flag = false;
     was_active_prev = is_active;
+end
 
-    if nargout > 1
-        info = build_info_struct(is_active, qp_solved, has_u_applied, u_applied, du_applied, ...
-                                 du_candidate, xhat, dyhat);
+function tf = normalize_logical_scalar(value, name)
+    if islogical(value) && isscalar(value)
+        tf = value;
+        return;
+    end
+
+    if isnumeric(value) && isscalar(value) && isfinite(value) && any(value == [0, 1])
+        tf = logical(value);
+        return;
+    end
+
+    error('%s must be a logical scalar or numeric 0/1 scalar.', name);
+end
+
+function L = validate_steady_state_gain(L, nx, ny)
+    if isempty(L)
+        error('L must be provided when use_steady_state_kf is true.');
+    end
+
+    if ~isequal(size(L), [nx, ny])
+        error('L must be an %dx%d steady-state Kalman gain matrix.', nx, ny);
+    end
+end
+
+function M = expand_covariance(M, n, name)
+    if isempty(M)
+        error('%s must not be empty.', name);
+    end
+
+    if isscalar(M)
+        M = M * eye(n);
+    elseif isvector(M) && numel(M) == n
+        M = diag(M(:));
+    elseif isequal(size(M), [n, n])
+        M = (M + M') / 2;
+    else
+        error('%s must be a scalar, an %d-element vector, or a %dx%d matrix.', ...
+              name, n, n, n);
     end
 end
 
@@ -162,16 +290,7 @@ function validate_horizons(N1, N2, Nu)
 end
 
 function is_active = normalize_is_active(is_active)
-    if islogical(is_active) && isscalar(is_active)
-        return;
-    end
-
-    if isnumeric(is_active) && isscalar(is_active) && isfinite(is_active) && any(is_active == [0, 1])
-        is_active = logical(is_active);
-        return;
-    end
-
-    error('is_active must be a logical scalar or numeric 0/1 scalar.');
+    is_active = normalize_logical_scalar(is_active, 'is_active');
 end
 
 function du_assumed = assumed_increment(was_active_prev, du_prev_assumed, nu)
@@ -298,16 +417,3 @@ function dU = solve_qp(H, f, lb, ub, Aineq, bineq, u_base, umin, umax, use_quadp
     end
 end
 
-function info = build_info_struct(is_active, qp_solved, has_u_applied, u_applied, du_applied, ...
-                                  du_candidate, xhat, dyhat)
-    info = struct( ...
-        'is_active', logical(is_active), ...
-        'qp_solved', logical(qp_solved), ...
-        'using_u_applied_feedback', logical(has_u_applied), ...
-        'u_applied', u_applied(:), ...
-        'du_applied', du_applied(:), ...
-        'du_mpc', du_candidate(:), ...
-        'u_mpc', u_applied(:) + du_candidate(:), ...
-        'xhat', xhat(:), ...
-        'dyhat', dyhat(:));
-end

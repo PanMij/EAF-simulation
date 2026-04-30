@@ -52,8 +52,8 @@ simIn_pid = simIn_pid.setExternalInput(ref_ts);
 %% Run case 2: MPC
 simIn_mpc = Simulink.SimulationInput(model);
 simIn_mpc = simIn_mpc.setModelParameter('SimulationMode', 'rapid-accelerator');
-simIn_pid = simIn_pid.setVariable('R_rms', 0);
-simIn_pid = simIn_pid.setVariable('dist_power', 0);
+simIn_mpc = simIn_mpc.setVariable('R_rms', 0);
+simIn_mpc = simIn_mpc.setVariable('dist_power', 0);
 simIn_mpc = simIn_mpc.setVariable('CtrlChoice', "MPC_QP", 'Workspace', model);
 simIn_mpc = simIn_mpc.setExternalInput(ref_ts);
 % Set MPC parameters

@@ -44,7 +44,8 @@ simIn_pid = simIn_pid.setVariable('dist_power', 2e-7);
 simIn_pid = simIn_pid.setVariable('CtrlChoice', "PID", 'Workspace', model);
 simIn_pid = simIn_pid.setVariable('Kp', 10, 'Workspace', model);
 simIn_pid = simIn_pid.setVariable('Ki', 10, 'Workspace', model);
-simIn_pid = simIn_pid.setVariable('Kd', [0.01225 0.02 0.01225], 'Workspace', model);
+% simIn_pid = simIn_pid.setVariable('Kd', [0.01225 0.02 0.01225], 'Workspace', model);
+simIn_pid = simIn_pid.setVariable('Kd', 0, 'Workspace', model);
 simIn_pid = simIn_pid.setExternalInput(ref_ts);
 
 % simOut_pid = sim(simIn_pid);
