@@ -1,4 +1,4 @@
-function [experience, env] = runAgentSimulation(agent, Z_init, l_slag, maxsteps)
+function [experience, env] = runAgentSimulation(agent, Z_init, l_slag, Z_adj_init, maxsteps)
 % runAgentSimulation simulates ctrlSys_rl_env_sg.slx with an RL agent.
 %
 % Inputs:
@@ -30,7 +30,7 @@ function [experience, env] = runAgentSimulation(agent, Z_init, l_slag, maxsteps)
     env = rlSimulinkEnv(mdl, agentBlk, obsInfo, actInfo);
 
     %% Set external inputs through the environment reset function
-    env.ResetFcn = @(in) localResetFcn(in, mdl, Z_init, l_slag);
+    env.ResetFcn = @(in) localResetFcn(in, mdl, Z_init, l_slag, Z_adj_init);
 
     %% Simulate using environment and agent arguments
     simOpts = rlSimulationOptions(...
@@ -41,13 +41,14 @@ function [experience, env] = runAgentSimulation(agent, Z_init, l_slag, maxsteps)
 end
 
 
-function in = localResetFcn(in, mdl, Z_init, l_slag)
+function in = localResetFcn(in, mdl, Z_init, l_slag, Z_adj_init)
 % localResetFcn sets the root-level Inport data before each simulation.
 
     inputDataset = localCreateInputDataset(mdl, Z_init, l_slag);
 
     in = setExternalInput(in, inputDataset);
 
+    in = setVariable(in, "Z_adj_init", Z_adj_init, "Workspace", mdl);
 end
 
 
