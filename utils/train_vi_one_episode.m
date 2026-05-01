@@ -2,18 +2,19 @@ function train_vi_one_episode( ...
     max_episode, useParallel, workers, ...
     MaxStepsPerEpisode, stage, resetParams)
 
-    if nargin < 5 || isempty(resetParams)
-        resetParams = localDefaultResetParams();
+    if nargin < 6 || isempty(resetParams)
+        error("train_vi_one_episode:MissingResetParams", ...
+            "resetParams must be provided explicitly as the sixth input argument.");
     end
 
     for k = 1:max_episode
-        rl_vi_one_episode_resume( ...
+        rl_vi_one_episode_resume(max_episode, ...
             useParallel, workers, MaxStepsPerEpisode, stage, resetParams);
     end
 end
 
 %% rl_vi_one_episode_resume
-function rl_vi_one_episode_resume( ...
+function rl_vi_one_episode_resume(max_episode, ...
     useParallel, workers, MaxStepsPerEpisode, stage, resetParams)
 
     mdl = resetParams.mdl;
@@ -95,12 +96,14 @@ function rl_vi_one_episode_resume( ...
 
     %% Train: always feed old trainingStats back if it exists
     if useParallel && isempty(gcp('nocreate'))
+        % trainOpts.ParallelizationOptions.Mode = "async";
         parpool(workers);
     end
 
     if ~isempty(trainingStatsPrev)
         maxEp = trainingStatsPrev.TrainingOptions.MaxEpisodes;
         trainingStatsPrev.TrainingOptions = trainOpts;
+        % trainingStatsPrev.TrainingOptions.MaxEpisodes = maxEp + max_episode;
         trainingStatsPrev.TrainingOptions.MaxEpisodes = maxEp + workers;
         if useParallel
             trainingStatsPrev.TrainingOptions.ParallelizationOptions.WorkerRandomSeeds = ...
@@ -129,55 +132,26 @@ function localCleanup(mdl)
     end
 end
 
-function resetParams = localDefaultResetParams()
-%LOCALDEFAULTRESETPARAMS Default parameters used by localResetFcn.
-
-    resetParams = struct();
-
-    resetParams.mdl = "ctrlSys_rl_env_sg";
-
-    resetParams.phaseIdx = 2;
-
-    % Nominal impedance of three phases
-    resetParams.Z_init0 = [0.055; 0.055; 0.055];
-
-    % Fixed arc length / hydraulic output
-    resetParams.hy_out0 = 0.2;
-
-    % Default stop time used if model StopTime is invalid
-    resetParams.TstopDefault = 10;
-
-    % Slag coverage ratio range
-    resetParams.rhoMin = 0.90;
-    resetParams.rhoMax = 1.10;
-
-    % Initial impedance adjustment range
-    % Original code:
-    % Zadj0(phaseIdx) = -0.02 * Z_init0(phaseIdx) ...
-    %                   + 0.02 * Z_init0(phaseIdx) * rand();
-    %
-    % This is equivalent to a random scale in [-0.02, 0].
-    resetParams.ZadjScaleMin = -0.02;
-    resetParams.ZadjScaleMax = 0.0;
-
-    resetParams.dZ_prev0 = [0; 0; 0];
-
-    % Reward weights
-    resetParams.reward = struct( ...
-        'alphaF', 1, ...
-        'alphaS', 1, ...
-        'beta_effort', 0.5, ...
-        'beta_freeze', 0.0, ...
-        'beta_smooth', 0.0, ...
-        'beta_return', 0.0);
-end
-
 function in = localResetFcn(in, resetParams)
-%LOCALRESETFCN Reset function for Stage 3: poor buried-arc condition
+%LOCALRESETFCN Reset function for variable-impedance RL training.
 %
 % Root input ports:
-%   Z_init : 3x1
-%   l_slag : 3x1
+%   Z_init : 3x1 constant signal
+%   l_slag : 3x1 ramp signal
+%
+% Required resetParams fields used here:
+%   mdl, phaseIdx, Z_init0, hy_out0, TstopDefault,
+%   rhoMin, rhoMax, ZadjScaleMin, ZadjScaleMax,
+%   dZ_prev_scale_min, dZ_prev_scale_max, reward
+%
+% Optional resetParams field:
+%   l_slagSlope : scalar or 3x1 ramp slope of l_slag [m/s]
+%                 Default: zeros(3,1), which gives the old constant signal.
+%
+% Ramp definition:
+%   l_slag(t) = l_slag0 + l_slagSlope * t,     0 <= t <= Tstop
+%
+% If l_slagSlope = 0, then l_slag(t) = l_slag0, so the signal is constant.
 
     mdl = resetParams.mdl;
 
@@ -199,15 +173,39 @@ function in = localResetFcn(in, resetParams)
     % Slag coverage ratio:
     %   rho_slag = l_slag / hy_out
     %
-    % This preserves your original behavior:
+    % This preserves your original initial-condition behavior:
     % one random rho value is shared by all three phases.
     rho_nominal = resetParams.rhoMin ...
         + (resetParams.rhoMax - resetParams.rhoMin) * ones(3, 1) * rand();
 
     rho_slag = rho_nominal;
 
-    % Convert slag coverage ratio to slag height
+    % Initial slag height
     l_slag0 = rho_slag .* hy_out0;
+
+    % Ramp slope of slag height [m/s].
+    % A scalar slope is applied to all three phases.
+    % If this field is absent, the old constant l_slag behavior is used.
+    if isfield(resetParams, "l_slagSlope") && ~isempty(resetParams.l_slagSlope)
+        l_slagSlope = resetParams.l_slagSlope(:);
+        if isscalar(l_slagSlope)
+            l_slagSlope = repmat(l_slagSlope, size(l_slag0));
+        end
+    else
+        l_slagSlope = zeros(size(l_slag0));
+    end
+
+    if numel(l_slagSlope) ~= numel(l_slag0)
+        error("resetParams.l_slagSlope must be a scalar or a %dx1 vector.", numel(l_slag0));
+    end
+
+    % End value of the ramp signal.
+    l_slag_end = l_slag0 + l_slagSlope * Tstop;
+
+    % Basic physical check. Remove this if negative values are intentionally tested.
+    if any(l_slag0 < 0) || any(l_slag_end < 0)
+        error("l_slag ramp becomes negative. Check resetParams.l_slagSlope or the rho range.");
+    end
 
     %% Initial internal variables
 
@@ -239,10 +237,13 @@ function in = localResetFcn(in, resetParams)
 
     %% Feed root-level input ports using external input dataset
 
+    % Z_init remains constant.
+    % l_slag is now a ramp. With zero slope, the two rows are identical,
+    % so this reduces to the previous constant-signal case.
     t = [0; Tstop];
 
     Z_init_data = repmat(Z_init0.', numel(t), 1);
-    l_slag_data = repmat(l_slag0.', numel(t), 1);
+    l_slag_data = [l_slag0.'; l_slag_end.'];
 
     Z_init_ts = timeseries(Z_init_data, t);
     l_slag_ts = timeseries(l_slag_data, t);
