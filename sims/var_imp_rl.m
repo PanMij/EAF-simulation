@@ -4,7 +4,6 @@ clear; clc; close all;
 model = 'ctrlSys_rl_env_sg_val';
 mpcModel = 'MPC_QP';
 matFile = 'MPC_workspace_nf.mat';
-agentFile = 'agent_stage5.mat';
 Tstop = 600;
 
 tMinPlot = 1.0;
@@ -50,8 +49,8 @@ ds = addElement(ds, l_slag_ts, 'l_slag');
 
 %% Run simulation
 simIn = Simulink.SimulationInput(model);
-% simIn = simIn.setModelParameter('SimulationMode', 'rapid-accelerator');
-simIn = simIn.setModelParameter('SimulationMode', 'accelerator');
+simIn = simIn.setModelParameter('SimulationMode', 'rapid-accelerator');
+% simIn = simIn.setModelParameter('SimulationMode', 'accelerator');
 simIn = simIn.setVariable('R_rms', 0);
 simIn = simIn.setVariable('dist_power', 0);
 simIn = simIn.setVariable('CtrlChoice', "MPC_QP", 'Workspace', model);
@@ -64,8 +63,6 @@ for i = 1:numel(mpcVarNames)
     varName = mpcVarNames{i};
     simIn = simIn.setVariable(varName, mpcVars.(varName), 'Workspace', mpcModel);
 end
-
-load(agentFile);
 
 out = sim(simIn);
 

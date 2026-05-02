@@ -1,7 +1,7 @@
 clc;clear;
 % close all;
 
-load("data/training_log/stage1/SimulationInfo5.mat");
+load("data/training_log/stage5/SimulationInfo302.mat");
 
 logs = SimulationInfo.logsout;
 
