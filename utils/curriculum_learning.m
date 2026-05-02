@@ -113,7 +113,7 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-train_vi_one_episode(ceil(numEpisodes / workers), useParallel, workers, numSteps, 3, resetParams);
+% train_vi_one_episode(ceil(numEpisodes / workers), useParallel, workers, numSteps, 3, resetParams);
 
 
 %% stage 4
@@ -146,4 +146,37 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 1.0);
 
-train_vi_one_episode(ceil(numEpisodes / workers), useParallel, workers, numSteps, 4, resetParams);
+% train_vi_one_episode(ceil(numEpisodes / workers), useParallel, workers, numSteps, 4, resetParams);
+
+
+%% stage 5
+disp("==================== Stage 5 ====================");
+
+numEpisodes = 100;
+numSteps = 30;
+
+resetParams = struct();
+resetParams.mdl = "ctrlSys_rl_env_sg";
+resetParams.phaseIdx = 2;
+resetParams.Z_init0 = [0.055; 0.055; 0.055];
+resetParams.hy_out0 = 0.2;
+resetParams.TstopDefault = numSteps * Ts_sup;
+
+resetParams.rhoMin = 0.88;
+resetParams.rhoMax = 1.05;
+
+resetParams.ZadjScaleMin = -0.1;
+resetParams.ZadjScaleMax = -0.00;
+
+resetParams.dZ_prev_scale_max = 0.01;
+resetParams.dZ_prev_scale_min = -0.03;
+
+resetParams.reward = struct( ...
+    'alphaF', 1, ...
+    'alphaS', 1, ...
+    'beta_effort', 0.3, ...
+    'beta_freeze', 0.3, ...
+    'beta_smooth', 0.3, ...
+    'beta_return', 1.0);
+
+train_vi_one_episode(ceil(numEpisodes / workers), useParallel, workers, numSteps, 5, resetParams);
