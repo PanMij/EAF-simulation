@@ -49,8 +49,7 @@ ds = addElement(ds, l_slag_ts, 'l_slag');
 
 %% Run simulation
 simIn = Simulink.SimulationInput(model);
-simIn = simIn.setModelParameter('SimulationMode', 'rapid-accelerator');
-% simIn = simIn.setModelParameter('SimulationMode', 'accelerator');
+simIn = simIn.setModelParameter('SimulationMode', 'accelerator');
 simIn = simIn.setVariable('R_rms', 0);
 simIn = simIn.setVariable('dist_power', 0);
 simIn = simIn.setVariable('CtrlChoice', "MPC_QP", 'Workspace', model);
