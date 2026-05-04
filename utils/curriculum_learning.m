@@ -47,7 +47,7 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-% train_vi_one_episode(numEpisodes, useParallel, workers, numSteps, 1, resetParams);
+train_vi_one_stage(numEpisodes, useParallel, workers, numSteps, 1, resetParams);
 
 
 %% stage 2
@@ -63,7 +63,7 @@ resetParams.Z_init0 = [0.055; 0.055; 0.055];
 resetParams.hy_out0 = 0.2;
 resetParams.TstopDefault = numSteps * Ts_sup;
 
-resetParams.rhoMin = 0.85;
+resetParams.rhoMin = 0.85;train_vi_one_episode
 resetParams.rhoMax = 0.95;
 
 resetParams.ZadjScaleMin = -0.03;
@@ -80,7 +80,7 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-% train_vi_one_episode(numEpisodes, useParallel, workers, numSteps, 2, resetParams);
+train_vi_one_stage(numEpisodes, useParallel, workers, numSteps, 2, resetParams);
 
 
 %% stage 3
@@ -113,7 +113,7 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-% train_vi_one_episode(ceil(numEpisodes / workers), useParallel, workers, numSteps, 3, resetParams);
+train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 3, resetParams);
 
 
 %% stage 4
@@ -146,7 +146,7 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 1.0);
 
-% train_vi_one_episode(ceil(numEpisodes / workers), useParallel, workers, numSteps, 4, resetParams);
+train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 4, resetParams);
 
 
 %% stage 5
@@ -179,4 +179,4 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.3, ...
     'beta_return', 1.0);
 
-train_vi_one_episode(ceil(numEpisodes / workers), useParallel, workers, numSteps, 5, resetParams);
+train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 5, resetParams);
