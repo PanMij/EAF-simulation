@@ -1,15 +1,27 @@
 clc;clear;
 close all;
 
-useParallel = true;
+useParallel = false;
 workers = 4;
 
 Ts_sup = 5;
 
+workflowOpts = struct();
+workflowOpts.AgentFile = "data/agent_sac_variable_impedance.mat";
+workflowOpts.ReplayBufferDir = "data/replay_buffers";
+workflowOpts.TrainingLogDir = "data/training_log";
+
+offlineOpts = struct();
+offlineOpts.AgentFile = workflowOpts.AgentFile;
+offlineOpts.ReplayBufferDir = workflowOpts.ReplayBufferDir;
+offlineOpts.OfflineDir = "data/offline_training";
+offlineOpts.MaxEpochs = 10;
+offlineOpts.NumStepsPerEpoch = 100;
+
 %% stage 1
 disp("==================== Stage 1 ====================");
 
-numEpisodes = 25;
+numEpisodes = 100;
 numSteps = 10;
 
 resetParams = struct();
@@ -47,13 +59,15 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-train_vi_one_stage(numEpisodes, useParallel, workers, numSteps, 1, resetParams);
+train_vi_one_stage(numEpisodes, useParallel, workers, numSteps, 1, resetParams, workflowOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts);
+train_offline(1, offlineOpts);
 
 
 %% stage 2
 disp("==================== Stage 2 ====================");
 
-numEpisodes = 50;
+numEpisodes = 150;
 numSteps = 20;
 
 resetParams = struct();
@@ -63,7 +77,7 @@ resetParams.Z_init0 = [0.055; 0.055; 0.055];
 resetParams.hy_out0 = 0.2;
 resetParams.TstopDefault = numSteps * Ts_sup;
 
-resetParams.rhoMin = 0.85;train_vi_one_episode
+resetParams.rhoMin = 0.85;
 resetParams.rhoMax = 0.95;
 
 resetParams.ZadjScaleMin = -0.03;
@@ -80,13 +94,15 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-train_vi_one_stage(numEpisodes, useParallel, workers, numSteps, 2, resetParams);
+train_vi_one_stage(numEpisodes, useParallel, workers, numSteps, 2, resetParams, workflowOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts);
+train_offline(2, offlineOpts);
 
 
 %% stage 3
 disp("==================== Stage 3 ====================");
 
-numEpisodes = 50;
+numEpisodes = 150;
 numSteps = 20;
 
 resetParams = struct();
@@ -113,13 +129,15 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 3, resetParams);
+train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 3, resetParams, workflowOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts);
+train_offline(3, offlineOpts);
 
 
 %% stage 4
 disp("==================== Stage 4 ====================");
 
-numEpisodes = 50;
+numEpisodes = 200;
 numSteps = 20;
 
 resetParams = struct();
@@ -146,13 +164,15 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 1.0);
 
-train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 4, resetParams);
+train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 4, resetParams, workflowOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts);
+train_offline(4, offlineOpts);
 
 
 %% stage 5
 disp("==================== Stage 5 ====================");
 
-numEpisodes = 100;
+numEpisodes = 250;
 numSteps = 30;
 
 resetParams = struct();
@@ -179,4 +199,24 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.3, ...
     'beta_return', 1.0);
 
-train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 5, resetParams);
+train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 5, resetParams, workflowOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts);
+train_offline(5, offlineOpts);
+
+
+%% Helper functions
+
+function offlineOpts = getOfflineOpts(reuseRatio, opts)
+    S = load(opts.AgentFile);
+    N = S.agent.ExperienceBuffer.Length;
+    B = S.agent.AgentOptions.MiniBatchSize;
+
+    totalUpdates = ceil(reuseRatio * N / B);
+
+    NumStepsPerEpoch = min(opts.NumStepsPerEpoch, totalUpdates);
+    MaxEpochs = ceil(totalUpdates / NumStepsPerEpoch);
+
+    opts.MaxEpochs = MaxEpochs;
+    opts.NumStepsPerEpoch = NumStepsPerEpoch;
+    offlineOpts = opts;
+end

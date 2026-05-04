@@ -1,27 +1,34 @@
 function train_vi_one_stage( ...
     max_episode, useParallel, workers, ...
-    MaxStepsPerEpisode, stage, resetParams)
+    MaxStepsPerEpisode, stage, resetParams, workflowOpts)
 
     if nargin < 6 || isempty(resetParams)
         error("train_vi_one_stage:MissingResetParams", ...
             "resetParams must be provided explicitly as the sixth input argument.");
     end
+    if nargin < 7 || isempty(workflowOpts)
+        workflowOpts = struct();
+    end
+
+    workflowOpts = localNormalizeWorkflowOpts(workflowOpts);
 
     for k = 1:max_episode
         rl_vi_one_stage_resume(max_episode, ...
-            useParallel, workers, MaxStepsPerEpisode, stage, resetParams);
+            useParallel, workers, MaxStepsPerEpisode, stage, resetParams, workflowOpts);
     end
+
+    localSaveCurrentStageBuffer(stage, workflowOpts);
 end
 
 %% rl_vi_one_stage_resume
-function rl_vi_one_stage_resume(max_episode, ...
-    useParallel, workers, MaxStepsPerEpisode, stage, resetParams)
+function rl_vi_one_stage_resume(~, ...
+    useParallel, workers, MaxStepsPerEpisode, stage, resetParams, workflowOpts)
 
     mdl = resetParams.mdl;
     agentBlk = mdl + "/RL_sup/RL Agent";
 
     TsRL = 5.0;
-    saveFile = "data/agent_sac_variable_impedance.mat";
+    saveFile = workflowOpts.AgentFile;
 
     if ~useParallel
         workers = 1;
@@ -49,50 +56,23 @@ function rl_vi_one_stage_resume(max_episode, ...
     env.ResetFcn = @(in)localResetFcn(in, resetParams);
 
     %% Load pretrained agent and trainingStats, or create new ones
-    if isfile(saveFile)
-        S = load(saveFile, "agent", "trainingStats");
-        agent = S.agent;
+    [agent, trainingStatsPrev, curriculumState] = ...
+        localLoadOrCreateAgent(saveFile, obsInfo, actInfo, TsRL);
 
-        if isfield(S, "trainingStats")
-            trainingStatsPrev = S.trainingStats;
-        else
-            trainingStatsPrev = [];
-        end
-
-        disp("Loaded pretrained agent.");
-    else
-        agent = rlSACAgent(obsInfo, actInfo);
-
-        agentOpts = rlSACAgentOptions;
-        agentOpts.SampleTime = TsRL;
-        agentOpts.DiscountFactor = 0.99;
-        agentOpts.MiniBatchSize = 128;
-        agentOpts.ExperienceBufferLength = 100000;
-        agentOpts.NumEpoch = 1;
-        agentOpts.MaxMiniBatchPerEpoch = 100;
-
-        agentOpts.ActorOptimizerOptions.LearnRate = 1e-4;
-        agentOpts.CriticOptimizerOptions(1).LearnRate = 1e-3;
-        agentOpts.CriticOptimizerOptions(2).LearnRate = 1e-3;
-
-        agentOpts.InfoToSave.ExperienceBuffer = true;
-
-        agent.AgentOptions = agentOpts;
-
-        trainingStatsPrev = [];
-        disp("Created new agent.");
-    end
+    agent = localConfigureAgentForStageReplay(agent);
+    [agent, curriculumState] = localPrepareStageReplayBuffer( ...
+        agent, trainingStatsPrev, curriculumState, stage, workflowOpts);
 
     %% Fresh training options for first run only
     trainOpts = rlTrainingOptions( ...
         MaxEpisodes = workers, ...
         MaxStepsPerEpisode = MaxStepsPerEpisode, ...
-        ScoreAveragingWindowLength = 5, ...
+        ScoreAveragingWindowLength = workers, ...
         Verbose = true, ...
         Plots = "none", ...
         UseParallel = useParallel, ...
         SimulationStorageType = "file", ...
-        SaveSimulationDirectory = "data/training_log/stage"+stage);
+        SaveSimulationDirectory = fullfile(workflowOpts.TrainingLogDir, "stage"+string(stage)));
 
     %% Train: always feed old trainingStats back if it exists
     if useParallel && isempty(gcp('nocreate'))
@@ -123,7 +103,187 @@ function rl_vi_one_stage_resume(max_episode, ...
     % end
 
     %% Save updated agent and updated trainingStats
-    save(saveFile, "agent", "trainingStats", "-v7.3");
+    curriculumState.activeStage = stage;
+    curriculumState.lastOnlineTrainingCompletedAt = string(datetime("now"));
+    localSaveAgentCheckpoint(saveFile, agent, trainingStats, curriculumState);
+end
+
+function opts = localNormalizeWorkflowOpts(opts)
+    if ~isstruct(opts)
+        error("train_vi_one_stage:InvalidWorkflowOptions", ...
+            "workflowOpts must be a struct.");
+    end
+
+    opts.AgentFile = localGetOption(opts, "AgentFile", ...
+        "data/agent_sac_variable_impedance.mat");
+    opts.ReplayBufferDir = localGetOption(opts, "ReplayBufferDir", ...
+        fullfile("data", "replay_buffers"));
+    opts.TrainingLogDir = localGetOption(opts, "TrainingLogDir", ...
+        fullfile("data", "training_log"));
+
+    opts.AgentFile = string(opts.AgentFile);
+    opts.ReplayBufferDir = string(opts.ReplayBufferDir);
+    opts.TrainingLogDir = string(opts.TrainingLogDir);
+end
+
+function value = localGetOption(opts, fieldName, defaultValue)
+    fieldName = char(fieldName);
+    if isfield(opts, fieldName) && ~isempty(opts.(fieldName))
+        value = opts.(fieldName);
+    else
+        value = defaultValue;
+    end
+end
+
+function [agent, trainingStatsPrev, curriculumState] = ...
+        localLoadOrCreateAgent(saveFile, obsInfo, actInfo, TsRL)
+    trainingStatsPrev = [];
+    curriculumState = struct();
+
+    if isfile(saveFile)
+        S = load(saveFile);
+        if ~isfield(S, "agent")
+            error("train_vi_one_stage:MissingAgent", ...
+                "Agent checkpoint %s does not contain an agent variable.", saveFile);
+        end
+
+        agent = S.agent;
+
+        if isfield(S, "trainingStats")
+            trainingStatsPrev = S.trainingStats;
+        end
+        if isfield(S, "curriculumState")
+            curriculumState = S.curriculumState;
+        end
+
+        disp("Loaded pretrained agent.");
+        return;
+    end
+
+    agent = rlSACAgent(obsInfo, actInfo);
+
+    agentOpts = rlSACAgentOptions;
+    agentOpts.SampleTime = TsRL;
+    agentOpts.DiscountFactor = 0.99;
+    agentOpts.MiniBatchSize = 256;
+    agentOpts.ExperienceBufferLength = 100000;
+    agentOpts.NumEpoch = 1;
+    agentOpts.MaxMiniBatchPerEpoch = 100;
+
+    agentOpts.ActorOptimizerOptions.LearnRate = 1e-4;
+    agentOpts.CriticOptimizerOptions(1).LearnRate = 1e-3;
+    agentOpts.CriticOptimizerOptions(2).LearnRate = 1e-3;
+
+    agentOpts.InfoToSave.ExperienceBuffer = true;
+
+    agent.AgentOptions = agentOpts;
+
+    disp("Created new agent.");
+end
+
+function agent = localConfigureAgentForStageReplay(agent)
+    agentOpts = agent.AgentOptions;
+
+    if isprop(agentOpts, "ResetExperienceBufferBeforeTraining")
+        agentOpts.ResetExperienceBufferBeforeTraining = false;
+    end
+    if isprop(agentOpts, "InfoToSave")
+        infoToSave = agentOpts.InfoToSave;
+        infoToSave.ExperienceBuffer = true;
+        agentOpts.InfoToSave = infoToSave;
+    end
+
+    agent.AgentOptions = agentOpts;
+end
+
+function [agent, curriculumState] = localPrepareStageReplayBuffer( ...
+        agent, trainingStats, curriculumState, stage, workflowOpts)
+    previousStage = [];
+
+    if isstruct(curriculumState) && isfield(curriculumState, "activeStage")
+        previousStage = curriculumState.activeStage;
+    end
+
+    stageChanged = isempty(previousStage) || ~isequal(previousStage, stage);
+    if ~stageChanged
+        return;
+    end
+
+    localEnsureFolder(workflowOpts.ReplayBufferDir);
+
+    if localBufferLength(agent.ExperienceBuffer) > 0
+        preStageBufferFile = fullfile(workflowOpts.ReplayBufferDir, ...
+            "pre_stage_"+string(stage)+"_buffer.mat");
+        localSaveReplayBuffer(agent.ExperienceBuffer, preStageBufferFile, ...
+            previousStage, workflowOpts.AgentFile);
+    end
+
+    reset(agent.ExperienceBuffer);
+
+    curriculumState.activeStage = stage;
+    curriculumState.stageStartedAt = string(datetime("now"));
+    curriculumState.stageBufferFile = fullfile(workflowOpts.ReplayBufferDir, ...
+        "stage_"+string(stage)+"_buffer.mat");
+
+    localSaveAgentCheckpoint(workflowOpts.AgentFile, agent, trainingStats, curriculumState);
+end
+
+function localSaveCurrentStageBuffer(stage, workflowOpts)
+    if ~isfile(workflowOpts.AgentFile)
+        warning("train_vi_one_stage:MissingAgentFile", ...
+            "Cannot save stage buffer because agent checkpoint %s does not exist.", ...
+            workflowOpts.AgentFile);
+        return;
+    end
+
+    S = load(workflowOpts.AgentFile, "agent");
+    if ~isfield(S, "agent")
+        error("train_vi_one_stage:MissingAgent", ...
+            "Agent checkpoint %s does not contain an agent variable.", ...
+            workflowOpts.AgentFile);
+    end
+
+    localEnsureFolder(workflowOpts.ReplayBufferDir);
+    stageBufferFile = fullfile(workflowOpts.ReplayBufferDir, ...
+        "stage_"+string(stage)+"_buffer.mat");
+    localSaveReplayBuffer(S.agent.ExperienceBuffer, stageBufferFile, ...
+        stage, workflowOpts.AgentFile);
+end
+
+function localSaveReplayBuffer(buffer, bufferFile, stage, agentFile)
+    stageBuffer = buffer;
+    metadata = struct( ...
+        "stage", stage, ...
+        "bufferLength", localBufferLength(stageBuffer), ...
+        "createdAt", string(datetime("now")), ...
+        "agentFile", string(agentFile));
+
+    localEnsureFolder(fileparts(bufferFile));
+    save(char(bufferFile), "stageBuffer", "metadata", "-v7.3");
+end
+
+function bufferLength = localBufferLength(buffer)
+    bufferLength = 0;
+    if isempty(buffer)
+        return;
+    end
+    if isprop(buffer, "Length")
+        bufferLength = buffer.Length;
+    end
+end
+
+function localSaveAgentCheckpoint(agentFile, agent, trainingStats, curriculumState)
+    localEnsureFolder(fileparts(agentFile));
+    save(char(agentFile), "agent", "trainingStats", "curriculumState", "-v7.3");
+end
+
+function localEnsureFolder(folderName)
+    if strlength(string(folderName)) == 0
+        return;
+    end
+    if ~isfolder(folderName)
+        mkdir(folderName);
+    end
 end
 
 function localCleanup(mdl)
