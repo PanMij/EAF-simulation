@@ -59,7 +59,7 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-train_vi_one_stage(numEpisodes, useParallel, workers, numSteps, 1, resetParams, workflowOpts);
+train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 1, resetParams, workflowOpts);
 offlineOpts = getOfflineOpts(5, offlineOpts);
 train_offline(1, offlineOpts);
 
@@ -94,7 +94,7 @@ resetParams.reward = struct( ...
     'beta_smooth', 0.0, ...
     'beta_return', 0.0);
 
-train_vi_one_stage(numEpisodes, useParallel, workers, numSteps, 2, resetParams, workflowOpts);
+train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 2, resetParams, workflowOpts);
 offlineOpts = getOfflineOpts(5, offlineOpts);
 train_offline(2, offlineOpts);
 
