@@ -15,8 +15,9 @@ offlineOpts = struct();
 offlineOpts.AgentFile = workflowOpts.AgentFile;
 offlineOpts.ReplayBufferDir = workflowOpts.ReplayBufferDir;
 offlineOpts.OfflineDir = "data/offline_training";
-offlineOpts.MaxEpochs = 10;
-offlineOpts.NumStepsPerEpoch = 100;
+
+globalMaxEpochs = 10;
+globalNumStepsPerEpoch = 100;
 
 %% stage 1
 disp("==================== Stage 1 ====================");
@@ -60,7 +61,7 @@ resetParams.reward = struct( ...
     'beta_return', 0.0);
 
 train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 1, resetParams, workflowOpts);
-offlineOpts = getOfflineOpts(5, offlineOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts, globalNumStepsPerEpoch, globalMaxEpochs);
 train_offline(1, offlineOpts);
 
 
@@ -95,7 +96,7 @@ resetParams.reward = struct( ...
     'beta_return', 0.0);
 
 train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 2, resetParams, workflowOpts);
-offlineOpts = getOfflineOpts(5, offlineOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts, globalNumStepsPerEpoch, globalMaxEpochs);
 train_offline(2, offlineOpts);
 
 
@@ -130,7 +131,7 @@ resetParams.reward = struct( ...
     'beta_return', 0.0);
 
 train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 3, resetParams, workflowOpts);
-offlineOpts = getOfflineOpts(5, offlineOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts, globalNumStepsPerEpoch, globalMaxEpochs);
 train_offline(3, offlineOpts);
 
 
@@ -165,7 +166,7 @@ resetParams.reward = struct( ...
     'beta_return', 1.0);
 
 train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 4, resetParams, workflowOpts);
-offlineOpts = getOfflineOpts(5, offlineOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts, globalNumStepsPerEpoch, globalMaxEpochs);
 train_offline(4, offlineOpts);
 
 
@@ -200,21 +201,21 @@ resetParams.reward = struct( ...
     'beta_return', 1.0);
 
 train_vi_one_stage(ceil(numEpisodes / workers), useParallel, workers, numSteps, 5, resetParams, workflowOpts);
-offlineOpts = getOfflineOpts(5, offlineOpts);
+offlineOpts = getOfflineOpts(5, offlineOpts, globalNumStepsPerEpoch, globalMaxEpochs);
 train_offline(5, offlineOpts);
 
 
 %% Helper functions
 
-function offlineOpts = getOfflineOpts(reuseRatio, opts)
+function offlineOpts = getOfflineOpts(reuseRatio, opts, globalNumStepsPerEpoch, globalMaxEpochs)
     S = load(opts.AgentFile);
     N = S.agent.ExperienceBuffer.Length;
     B = S.agent.AgentOptions.MiniBatchSize;
 
     totalUpdates = ceil(reuseRatio * N / B);
 
-    NumStepsPerEpoch = min(opts.NumStepsPerEpoch, totalUpdates);
-    MaxEpochs = ceil(totalUpdates / NumStepsPerEpoch);
+    NumStepsPerEpoch = min(globalNumStepsPerEpoch, totalUpdates);
+    MaxEpochs = min(globalMaxEpochs, ceil(totalUpdates / NumStepsPerEpoch));
 
     opts.MaxEpochs = MaxEpochs;
     opts.NumStepsPerEpoch = NumStepsPerEpoch;
