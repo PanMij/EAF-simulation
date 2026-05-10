@@ -2,7 +2,7 @@
 clear; clc; close all;
 
 model = 'ctrlSys_mpc';
-mpcModel = 'MPC_QP';
+mpcModel = 'MPCQP';
 matFile = 'MPC_workspace_40.mat';
 Tstop = 40;
 tMinPlot = 0.5;
