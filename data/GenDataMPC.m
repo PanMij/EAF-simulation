@@ -14,7 +14,11 @@ nSeq = {8, 4};
 % Noise params
 Rn_seed = {[4949 4511 6499], [2625, 5109, 7021]};
 Rn_SNR = 40;
+R_rms = 0.06;
 dist_seed = {[67905 75798 74338], [ 39283 65582 17201]};
+dist_power = 2e-7;
+% Use compensator
+withComp = true;
 
 %% Generate data
 simIn(2, 1) = Simulink.SimulationInput(mdl);
@@ -27,7 +31,10 @@ for i = 1:numel(simIn)
     simIn(i) = simIn(i).setVariable('nSeq', nSeq{i}, 'Workspace', 'PlantIdentificationMPC');
     simIn(i) = simIn(i).setVariable('Rn_seed', Rn_seed{i});
     simIn(i) = simIn(i).setVariable('Rn_SNR', Rn_SNR);
+    simIn(i) = simIn(i).setVariable('R_rms', R_rms);
     simIn(i) = simIn(i).setVariable('dist_seed', dist_seed{i});
+    simIn(i) = simIn(i).setVariable('dist_power', dist_power);
+    simIn(i) = simIn(i).setVariable('withComp', withComp, 'Workspace', 'PlantIdentificationMPC');
 
     % simIn(i) = simIn(i).setModelParameter('StopTime', '5');
     simIn(i) = simIn(i).setModelParameter('SimulationMode', 'rapid-accelerator');
