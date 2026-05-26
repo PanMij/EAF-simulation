@@ -3,7 +3,7 @@ clc; clear;
 %% Remove the existing voltage_speed_lut.mat
 outDir = fullfile(pwd, "data");
 if ~exist(outDir, "dir"), mkdir(outDir); end
-lutFile = fullfile(outDir, "voltage_speed_lut.mat");
+lutFile = fullfile(outDir, "voltage_speed_lut_nl.mat");
 if isfile(lutFile)
     delete(lutFile);
 end
